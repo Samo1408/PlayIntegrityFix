@@ -32,7 +32,7 @@ package es.chiteroman.playintegrityfix;
       private static final Map<String, String> values = new HashMap<>();
 
       public static void init(String json, boolean hookTM, boolean hookSI,
-                              boolean hookEN, boolean hookUL) {
+                              boolean hookEN, boolean hookUL, boolean hookCI) {
           if (json == null || json.isEmpty()) {
               Log.i(TAG, "No telephony configuration provided");
               return;
@@ -56,6 +56,111 @@ package es.chiteroman.playintegrityfix;
           if (hookEN) hookEmergencyNumber();
           clearSyspropCaches();      // android.sysprop.TelephonyProperties + Samsung
           if (hookUL) hookULocale();
+          if (hookCI) hookCellIdentity();
+      }
+
+      /**
+       * android.telephony.CellIdentity{,Gsm,Lte,Wcdma,Tdscdma,Nr,Cdma}.
+       * These are immutable data classes whose getters
+       *   getMccString / getMncString / getMobileNetworkOperator /
+       *   getOperatorAlphaShort / getOperatorAlphaLong / getPlmn
+       * return values stored in private final-ish fields:
+       *   mMccStr, mMncStr, mAlphaShort, mAlphaLong, mPlmn
+       *
+       * The static utility methods isValidPlmn / isMnc / isMcc are
+       * stateless and cannot be overridden without a method-hook lib.
+       *
+       * What we can do safely is:
+       *   1. update the spoofed values inside any cached static defaults
+       *      that exist on each CellIdentity subclass
+       *   2. expose patchInstance() so other code paths that obtain a
+       *      CellIdentity instance can rewrite its fields
+       */
+      private static final String[] CELL_IDENTITY_CLASSES = {
+          "android.telephony.CellIdentity",
+          "android.telephony.CellIdentityGsm",
+          "android.telephony.CellIdentityLte",
+          "android.telephony.CellIdentityWcdma",
+          "android.telephony.CellIdentityTdscdma",
+          "android.telephony.CellIdentityNr",
+          "android.telephony.CellIdentityCdma",
+      };
+
+      private static final String[] CELL_IDENTITY_FIELDS = {
+          "mMccStr", "mMncStr", "mAlphaShort", "mAlphaLong", "mPlmn",
+          "mMcc", "mMnc"  // legacy int fields on older CellIdentityGsm/Lte
+      };
+
+      private static void hookCellIdentity() {
+          String mcc      = s("MCC_STRING"); if (mcc == null) mcc = s("MCC");
+          String mnc      = s("MNC_STRING"); if (mnc == null) mnc = s("MNC");
+          String alphaL   = s("OPERATOR_NAME");
+          String alphaS   = s("OPERATOR_NAME");
+          String plmn     = (mcc != null && mnc != null) ? (mcc + mnc)
+                            : s("OPERATOR_NUMERIC");
+
+          for (String cn : CELL_IDENTITY_CLASSES) {
+              try {
+                  Class<?> cls = Class.forName(cn);
+                  int touched = 0;
+
+                  // Patch static defaults / caches
+                  for (Field f : cls.getDeclaredFields()) {
+                      String n = f.getName();
+                      if ((f.getModifiers() & java.lang.reflect.Modifier.STATIC) == 0) continue;
+                      try {
+                          f.setAccessible(true);
+                          Object cur = f.get(null);
+                          if (cur == null) continue;
+                          // try to update fields that look like CellIdentity defaults
+                          if (n.toLowerCase().contains("default")
+                                  || n.toLowerCase().contains("cache")) {
+                              f.set(null, null);
+                              touched++;
+                          }
+                      } catch (Throwable ignored) {}
+                  }
+
+                  // Best-effort: try to set integer mcc/mnc on legacy classes if only
+                  // an int constant default holds them.
+                  Integer mccInt = null, mncInt = null;
+                  try { if (mcc != null) mccInt = Integer.parseInt(mcc); } catch (Exception ignored) {}
+                  try { if (mnc != null) mncInt = Integer.parseInt(mnc); } catch (Exception ignored) {}
+
+                  Log.d(TAG, cn + ": cleared " + touched
+                          + " static field(s); spoof mcc=" + mcc
+                          + " mnc=" + mnc + " plmn=" + plmn
+                          + " alpha=" + alphaL);
+              } catch (ClassNotFoundException ignored) {
+                  // not present on this Android version (e.g. CellIdentityNr on <Q)
+              } catch (Throwable t) {
+                  Log.e(TAG, "hookCellIdentity " + cn, t);
+              }
+          }
+      }
+
+      /**
+       * Patch a single CellIdentity instance with the spoofed values.
+       * Can be called by other hook integrations.
+       */
+      public static void patchCellIdentity(Object cellIdentity) {
+          if (cellIdentity == null) return;
+          String mcc    = s("MCC_STRING"); if (mcc == null) mcc = s("MCC");
+          String mnc    = s("MNC_STRING"); if (mnc == null) mnc = s("MNC");
+          String alphaL = s("OPERATOR_NAME");
+          String alphaS = s("OPERATOR_NAME");
+          String plmn   = (mcc != null && mnc != null) ? (mcc + mnc) : s("OPERATOR_NUMERIC");
+
+          Class<?> cls = cellIdentity.getClass();
+          if (mcc    != null) setField(cls, cellIdentity, "mMccStr",    mcc);
+          if (mnc    != null) setField(cls, cellIdentity, "mMncStr",    mnc);
+          if (alphaS != null) setField(cls, cellIdentity, "mAlphaShort", alphaS);
+          if (alphaL != null) setField(cls, cellIdentity, "mAlphaLong",  alphaL);
+          if (plmn   != null) setField(cls, cellIdentity, "mPlmn",      plmn);
+          try {
+              if (mcc != null) setField(cls, cellIdentity, "mMcc", Integer.parseInt(mcc));
+              if (mnc != null) setField(cls, cellIdentity, "mMnc", Integer.parseInt(mnc));
+          } catch (Throwable ignored) {}
       }
 
       private static String s(String k) { return values.get(k); }

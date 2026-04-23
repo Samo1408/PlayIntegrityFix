@@ -14,7 +14,8 @@ package es.chiteroman.playintegrityfix;
               boolean hookSI = flags.optBoolean("hookSubscriptionInfo", true);
               boolean hookEN = flags.optBoolean("hookEmergencyNumber", true);
               boolean hookUL = flags.optBoolean("hookULocale", true);
-              TelephonyHooker.init(telephonyJson, hookTM, hookSI, hookEN, hookUL);
+              boolean hookCI = flags.optBoolean("hookCellIdentity", true);
+              TelephonyHooker.init(telephonyJson, hookTM, hookSI, hookEN, hookUL, hookCI);
           } catch (Throwable t) {
               Log.e(TAG, "EntryPoint.init failed", t);
           }
