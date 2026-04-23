@@ -1,6 +1,7 @@
 import { exec, spawn, toast } from "kernelsu-alt";
 import '@material/web/all.js';
 import { translations, loadTranslations } from './locales.js';
+import { setupTelephonyListeners, toggleTelephonySection } from './telephony.js';
 
 let scriptOnly = false;
 let shellRunning = false;
@@ -668,6 +669,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkSeLinuxStatus();
     checkPropDate();
     checkRomSignature();
+    
+    // Setup telephony spoofing
+    setupTelephonyListeners(exec, appendToOutput);
 
     document.querySelectorAll('[unresolved]').forEach(el => el.removeAttribute('unresolved'));
 });

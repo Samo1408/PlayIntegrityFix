@@ -244,3 +244,74 @@ label {
         overflow: auto;
     }
 }
+
+/* Telephony Spoofing Section Styles */
+.telephony-section {
+    width: 100%;
+    padding: 16px;
+    background-color: var(--md-sys-color-surface-container-low);
+    border-radius: 8px;
+    margin-top: 16px;
+    box-sizing: border-box;
+}
+
+.section-header {
+    font-size: 1.1em;
+    font-weight: 500;
+    margin-bottom: 16px;
+    color: var(--md-sys-color-on-surface);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.telephony-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.input-group label {
+    font-size: 0.9em;
+    color: var(--md-sys-color-on-surface-variant);
+    font-weight: 500;
+}
+
+.input-group md-outlined-text-field {
+    width: 100%;
+}
+
+.telephony-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.telephony-buttons md-filled-button,
+.telephony-buttons md-outlined-button,
+.telephony-buttons md-filled-tonal-button {
+    flex: 0 1 auto;
+}
+
+@media (max-width: 600px) {
+    .telephony-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .telephony-buttons {
+        flex-direction: column;
+    }
+    
+    .telephony-buttons md-filled-button,
+    .telephony-buttons md-outlined-button,
+    .telephony-buttons md-filled-tonal-button {
+        width: 100%;
+    }
+}
