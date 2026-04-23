@@ -1,7 +1,7 @@
-id=tryinject
-name=Inject Spoof
-version=v1
-versionCode=1
-author=Samo1408
-description=Universal modular fix for Inject on devices running Android 8-16
-#updateJson=https://raw.githubusercontent.com/KOWX712/PlayIntegrityFix/inject_s/update.json
+id=teleinject
+  name=TeleInject - Telephony Spoof
+  version=v1.0
+  versionCode=1
+  author=Samo1408 (Modified)
+  description=Telephony spoofing module with per-app and per-class hook control. Supports SubscriptionInfo, EmergencyNumber, TelephonyProperties and SemSystemProperties.
+  
