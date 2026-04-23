@@ -22,6 +22,6 @@ pluginManagement {
       }
   }
 
-  rootProject.name = "TeleInject"
+  rootProject.name = "TryTele"
   include(":zygisk")
   
