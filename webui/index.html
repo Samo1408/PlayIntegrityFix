@@ -39,13 +39,18 @@
                   <md-ripple></md-ripple>
               </label>
               <label class="spoof-option">
-                  android.telephony.TelephonyProperties
+                  android.sysprop.TelephonyProperties
                   <md-switch id="hookTelephonyProperties" selected></md-switch>
                   <md-ripple></md-ripple>
               </label>
               <label class="spoof-option">
-                  android.os.SemSystemProperties
-                  <md-switch id="hookSemSystemProperties" selected></md-switch>
+                  com.samsung.telephony.sysprop.SemTelephonyProps
+                  <md-switch id="hookSemTelephonyProps" selected></md-switch>
+                  <md-ripple></md-ripple>
+              </label>
+              <label class="spoof-option">
+                  android.icu.util.ULocale (getDisplayCountry)
+                  <md-switch id="hookULocale" selected></md-switch>
                   <md-ripple></md-ripple>
               </label>
           </div>
