@@ -1,117 +1,91 @@
 @file:Suppress("UnstableApiUsage")
 
-import java.util.zip.CRC32
+  plugins {
+      alias(libs.plugins.android.application)
+  }
 
-plugins {
-    alias(libs.plugins.android.application)
-}
+  android {
+      namespace = "es.chiteroman.playintegrityfix"
+      compileSdk = 36
+      ndkVersion = "29.0.14206865"
+      buildToolsVersion = "36.1.0"
 
-tasks.register("generateModulePropChecksum") {
-    val propFile = project.rootDir.resolve("module/module.prop")
-    val checksumHeader = project.projectDir.resolve("src/main/cpp/checksum.h")
+      buildFeatures {
+          prefab = true
+      }
 
-    doLast {
-        val bytes = propFile.readBytes()
-        val crc = CRC32()
-        crc.update(bytes)
-        val checksum = crc.value
-        val hex = checksum.toString(16)
-        checksumHeader.writeText("""
-            #pragma once
-            #define MODULE_PROP_CHECKSUM_HEX "$hex"
-        """.trimIndent())
-    }
-}
+      packaging {
+          resources {
+              excludes += "**"
+          }
+      }
 
-tasks.named("preBuild") {
-    dependsOn("generateModulePropChecksum")
-}
+      defaultConfig {
+          minSdk = 26
+          multiDexEnabled = false
 
-android {
-    namespace = "es.chiteroman.playintegrityfix"
-    compileSdk = 36
-    ndkVersion = "29.0.14206865"
-    buildToolsVersion = "36.1.0"
+          externalNativeBuild {
+              cmake {
+                  abiFilters("arm64-v8a", "armeabi-v7a")
 
-    buildFeatures {
-        prefab = true
-    }
+                  arguments(
+                      "-DCMAKE_BUILD_TYPE=Release",
+                      "-DANDROID_STL=none",
+                      "-DCMAKE_JOB_POOLS=compile=${Runtime.getRuntime().availableProcessors()}",
+                      "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
+                      "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                  )
 
-    packaging {
-        resources {
-            excludes += "**"
-        }
-    }
+                  val commonFlags = setOf(
+                      "-fno-exceptions",
+                      "-fno-rtti",
+                      "-fvisibility=hidden",
+                      "-fvisibility-inlines-hidden",
+                      "-ffunction-sections",
+                      "-fdata-sections",
+                      "-w"
+                  )
 
-    defaultConfig {
-        minSdk = 26
-        multiDexEnabled = false
+                  cFlags += "-std=c23"
+                  cFlags += commonFlags
+                  cppFlags += "-std=c++26"
+                  cppFlags += commonFlags
+              }
+          }
+      }
 
-        externalNativeBuild {
-            cmake {
-                abiFilters(
-                    "arm64-v8a",
-                    "armeabi-v7a"
-                )
+      buildTypes {
+          release {
+              isMinifyEnabled = true
+              multiDexEnabled = false
+              proguardFiles += file("proguard-rules.pro")
+          }
+      }
 
-                arguments(
-                    "-DCMAKE_BUILD_TYPE=Release",
-                    "-DANDROID_STL=none",
-                    "-DCMAKE_JOB_POOLS=compile=${Runtime.getRuntime().availableProcessors()}",
-                    "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
-                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
-                )
+      compileOptions {
+          sourceCompatibility = JavaVersion.VERSION_21
+          targetCompatibility = JavaVersion.VERSION_21
+      }
 
-                val commonFlags = setOf(
-                    "-fno-exceptions",
-                    "-fno-rtti",
-                    "-fvisibility=hidden",
-                    "-fvisibility-inlines-hidden",
-                    "-ffunction-sections",
-                    "-fdata-sections",
-                    "-w"
-                )
+      externalNativeBuild {
+          cmake {
+              path("src/main/cpp/CMakeLists.txt")
+              version = "3.30.5+"
+          }
+      }
+  }
 
-                cFlags += "-std=c23"
-                cFlags += commonFlags
+  dependencies {
+      implementation(libs.cxx)
+      implementation(libs.hiddenapibypass)
+  }
 
-                cppFlags += "-std=c++26"
-                cppFlags += commonFlags
-            }
-        }
-    }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = true
-            multiDexEnabled = false
-            proguardFiles += file("proguard-rules.pro")
-        }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
-
-    externalNativeBuild {
-        cmake {
-            path("src/main/cpp/CMakeLists.txt")
-            version = "3.30.5+"
-        }
-    }
-}
-
-dependencies {
-    implementation(libs.cxx)
-    implementation(libs.hiddenapibypass)
-}
-
-afterEvaluate {
-    tasks.named("assembleRelease") {
-        finalizedBy(
-            rootProject.tasks["copyZygiskFiles"],
-            rootProject.tasks["zip"]
-        )
-    }
-}
+  afterEvaluate {
+      tasks.named("assembleRelease") {
+          finalizedBy(
+              rootProject.tasks["copyZygiskFiles"],
+              rootProject.tasks["zip"]
+          )
+      }
+  }
+  
