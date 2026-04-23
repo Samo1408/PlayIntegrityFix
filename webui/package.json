@@ -1,13 +1,13 @@
 {
-  "name": "playintegrityfix",
+  "name": "teleinject-webui",
   "version": "1.0.0",
-  "description": "",
+  "description": "TeleInject WebUI",
   "scripts": {
     "dev": "vite",
     "build": "vite build --emptyOutDir"
   },
   "keywords": [
-    "playintegrityfix"
+    "teleinject"
   ],
   "author": "KOWX712",
   "license": "GPL-3.0-only",
