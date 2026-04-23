@@ -1,624 +1,365 @@
 #include "zygisk.hpp"
-#include "checksum.h"
-#include "Dobby/include/dobby.h"
-#include "pif_config.hpp"
-
-#include <algorithm>
-#include <android/log.h>
-#include <jni.h>
-#include <string>
-#include <string_view>
-#include <sys/socket.h>
-#include <sys/system_properties.h>
-#include <sys/time.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <vector>
-#include <cstdio>
-
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "PIF", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "PIF", __VA_ARGS__)
-
-#define DEX_PATH "/data/adb/modules/playintegrityfix/classes.dex"
-#define MODULE_PROP "/data/adb/modules/playintegrityfix/module.prop"
-#define DEFAULT_PIF "/data/adb/modules/playintegrityfix/pif.prop"
-#define CUSTOM_PIF "/data/adb/pif.prop"
-
-#define VENDING_PACKAGE "com.android.vending"
-#define DROIDGUARD_PACKAGE "com.google.android.gms.unstable"
-
-namespace {
-
-constexpr uint8_t COMMAND_LOAD_PAYLOAD = 1;
-constexpr int PAYLOAD_TIMEOUT_MS = 5000;
-
-JNIEnv *gEnv = nullptr;
-pif::Config gConfig;
-std::vector<uint8_t> gDexBytes;
-
-using T_Callback = void (*)(void *, const char *, const char *, uint32_t);
-
-T_Callback o_callback = nullptr;
-void (*o_system_property_read_callback)(prop_info *, T_Callback, void *) = nullptr;
-
-ssize_t xread(int fd, void *buffer, size_t countToRead) {
-    ssize_t totalRead = 0;
-    char *currentBuf = static_cast<char *>(buffer);
-    size_t remainingBytes = countToRead;
-
-    while (remainingBytes > 0) {
-        const ssize_t ret = TEMP_FAILURE_RETRY(read(fd, currentBuf, remainingBytes));
-        if (ret < 0) {
-            return -1;
-        }
-        if (ret == 0) {
-            break;
-        }
-
-        currentBuf += ret;
-        totalRead += ret;
-        remainingBytes -= ret;
-    }
-
-    return totalRead;
-}
-
-ssize_t xwrite(int fd, const void *buffer, size_t countToWrite) {
-    ssize_t totalWritten = 0;
-    const char *currentBuf = static_cast<const char *>(buffer);
-    size_t remainingBytes = countToWrite;
-
-    while (remainingBytes > 0) {
-        const ssize_t ret = TEMP_FAILURE_RETRY(write(fd, currentBuf, remainingBytes));
-        if (ret < 0) {
-            return -1;
-        }
-        if (ret == 0) {
-            break;
-        }
-
-        currentBuf += ret;
-        totalWritten += ret;
-        remainingBytes -= ret;
-    }
-
-    return totalWritten;
-}
-
-bool readExact(int fd, void *buffer, size_t size) {
-    return xread(fd, buffer, size) == static_cast<ssize_t>(size);
-}
-
-bool writeExact(int fd, const void *buffer, size_t size) {
-    return xwrite(fd, buffer, size) == static_cast<ssize_t>(size);
-}
-
-void applySocketTimeout(int fd) {
-    const timeval timeout{
-            .tv_sec = PAYLOAD_TIMEOUT_MS / 1000,
-            .tv_usec = static_cast<suseconds_t>((PAYLOAD_TIMEOUT_MS % 1000) * 1000),
-    };
-
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-}
-
-bool readFileBytes(const char *path, std::vector<uint8_t> &out) {
-    out.clear();
-
-    const int file = open(path, O_RDONLY | O_CLOEXEC);
-    if (file < 0) {
-        return false;
-    }
-
-    std::vector<uint8_t> buffer(4096);
-    ssize_t bytes = 0;
-    while ((bytes = TEMP_FAILURE_RETRY(read(file, buffer.data(), buffer.size()))) > 0) {
-        out.insert(out.end(), buffer.begin(), buffer.begin() + bytes);
-    }
-
-    close(file);
-    return bytes == 0 && !out.empty();
-}
-
-bool loadPropBytes(std::vector<uint8_t> &out) {
-    if (readFileBytes(CUSTOM_PIF, out)) {
-        return true;
-    }
-    return readFileBytes(DEFAULT_PIF, out);
-}
-
-bool writeVector(int fd, const std::vector<uint8_t> &buffer) {
-    const uint32_t size = static_cast<uint32_t>(buffer.size());
-    if (!writeExact(fd, &size, sizeof(size))) {
-        return false;
-    }
-    return size == 0 || writeExact(fd, buffer.data(), size);
-}
-
-bool readVector(int fd, std::vector<uint8_t> &buffer) {
-    uint32_t size = 0;
-    if (!readExact(fd, &size, sizeof(size))) {
-        return false;
-    }
-
-    buffer.resize(size);
-    return size == 0 || readExact(fd, buffer.data(), size);
-}
-
-uint32_t crc32(const uint8_t *data, size_t len) {
-    uint32_t crc = 0xFFFFFFFF;
-    for (size_t i = 0; i < len; ++i) {
-        crc ^= data[i];
-        for (int j = 0; j < 8; ++j) {
-            crc = (crc >> 1) ^ (0xEDB88320U & (-(crc & 1)));
-        }
-    }
-    return ~crc;
-}
-
-bool verifyModule(const char *path, const char *expectedHex) {
-    const bool update = access("/data/adb/modules/playintegrityfix/update", F_OK) == 0;
-    if (update) {
-        return true;
-    }
-
-    const int fd = open(path, O_RDWR);
-    if (fd < 0) {
-        return false;
-    }
-
-    std::vector<uint8_t> buf;
-    uint8_t tmp[512];
-    ssize_t n = 0;
-    while ((n = read(fd, tmp, sizeof(tmp))) > 0) {
-        buf.insert(buf.end(), tmp, tmp + n);
-    }
-    if (buf.empty()) {
-        close(fd);
-        return false;
-    }
-
-    const uint32_t crc = crc32(buf.data(), buf.size());
-    uint32_t expectedCrc = 0;
-    sscanf(expectedHex, "%x", &expectedCrc);
-
-    if (crc == expectedCrc) {
-        close(fd);
-        return true;
-    }
-
-    LOGD("[COMPANION] module tampered!");
-
-    lseek(fd, 0, SEEK_SET);
-    std::vector<std::string> lines;
-    const std::string fileStr(buf.begin(), buf.end());
-    size_t pos = 0;
-    while (pos < fileStr.size()) {
-        const size_t next = fileStr.find('\n', pos);
-        std::string line = fileStr.substr(pos, next - pos + 1);
-        if (line.rfind("description=", 0) == 0) {
-            line = "description=❌ This module has been tampered, please install from official source.\n";
-        }
-        lines.push_back(line);
-        if (next == std::string::npos) {
-            break;
-        }
-        pos = next + 1;
-    }
-
-    if (ftruncate(fd, 0) != 0) {
-        close(fd);
-        return false;
-    }
-
-    lseek(fd, 0, SEEK_SET);
-    for (const auto &line : lines) {
-        if (write(fd, line.c_str(), line.size()) != static_cast<ssize_t>(line.size())) {
-            close(fd);
-            return false;
-        }
-    }
-
-    close(fd);
-    return false;
-}
-
-std::string propMapToJson() {
-    std::string json = "{";
-    bool first = true;
-    for (const auto &[key, value] : gConfig.propMap) {
-        if (!first) {
-            json += ",";
-        }
-        first = false;
-        json += "\"" + key + "\":\"" + value + "\"";
-    }
-    json += "}";
-    return json;
-}
-
-std::string telephonyMapToJson() {
-    std::string json = "{";
-    bool first = true;
-    for (const auto &[key, value] : gConfig.telephonyMap) {
-        if (!first) {
-            json += ",";
-        }
-        first = false;
-        json += "\"" + key + "\":\"" + value + "\"";
-    }
-    json += "}";
-    return json;
-}
-
-void modifyCallback(void *cookie, const char *name, const char *value, uint32_t serial) {
-    if (!cookie || !name || !value || !o_callback) {
-        return;
-    }
-
-    const char *oldValue = value;
-    const std::string_view prop(name);
-
-    if (prop == "init.svc.adbd") {
-        value = "stopped";
-    } else if (prop == "sys.usb.state") {
-        value = "mtp";
-    } else if (prop.ends_with("api_level")) {
-        if (!gConfig.deviceInitialSdkInt.empty()) {
-            value = gConfig.deviceInitialSdkInt.c_str();
-        }
-    } else if (prop.ends_with(".security_patch")) {
-        if (!gConfig.securityPatch.empty()) {
-            value = gConfig.securityPatch.c_str();
-        }
-    } else if (prop.ends_with(".build.id")) {
-        if (!gConfig.buildId.empty()) {
-            value = gConfig.buildId.c_str();
-        }
-    }
-
-    if (strcmp(oldValue, value) == 0) {
-        if (gConfig.debug) {
-            LOGD("[%s]: %s (unchanged)", name, oldValue);
-        }
-    } else {
-        LOGD("[%s]: %s -> %s", name, oldValue, value);
-    }
-
-    o_callback(cookie, name, value, serial);
-}
-
-void systemPropertyReadCallback(prop_info *pi, T_Callback callback, void *cookie) {
-    if (pi && callback && cookie) {
-        o_callback = callback;
-    }
-    o_system_property_read_callback(pi, modifyCallback, cookie);
-}
-
-bool doHook() {
-    void *ptr = DobbySymbolResolver(nullptr, "__system_property_read_callback");
-    if (ptr && DobbyHook(ptr, reinterpret_cast<void *>(systemPropertyReadCallback),
-                         reinterpret_cast<void **>(&o_system_property_read_callback)) == 0) {
-        LOGD("hook __system_property_read_callback successful at %p", ptr);
-        return true;
-    }
-
-    LOGE("hook __system_property_read_callback failed!");
-    return false;
-}
-
-void doSpoofVending() {
-    constexpr int requestSdk = 32;
-
-    jclass buildVersionClass = gEnv->FindClass("android/os/Build$VERSION");
-    if (buildVersionClass == nullptr) {
-        LOGE("Build.VERSION class not found");
-        gEnv->ExceptionClear();
-        return;
-    }
-
-    jfieldID sdkIntFieldId = gEnv->GetStaticFieldID(buildVersionClass, "SDK_INT", "I");
-    if (sdkIntFieldId == nullptr) {
-        LOGE("SDK_INT field not found");
-        gEnv->ExceptionClear();
-        gEnv->DeleteLocalRef(buildVersionClass);
-        return;
-    }
-
-    const int oldValue = gEnv->GetStaticIntField(buildVersionClass, sdkIntFieldId);
-    const int targetSdk = std::min(oldValue, requestSdk);
-    if (oldValue == targetSdk) {
-        gEnv->DeleteLocalRef(buildVersionClass);
-        return;
-    }
-
-    gEnv->SetStaticIntField(buildVersionClass, sdkIntFieldId, targetSdk);
-    if (gEnv->ExceptionCheck()) {
-        gEnv->ExceptionDescribe();
-        gEnv->ExceptionClear();
-        LOGE("SDK_INT field not accessible (JNI Exception)");
-    } else {
-        LOGD("[SDK_INT]: %d -> %d", oldValue, targetSdk);
-    }
-
-    gEnv->DeleteLocalRef(buildVersionClass);
-}
-
-void updateBuildFields() {
-    jclass buildClass = gEnv->FindClass("android/os/Build");
-    jclass versionClass = gEnv->FindClass("android/os/Build$VERSION");
-    if (buildClass == nullptr || versionClass == nullptr) {
-        gEnv->ExceptionClear();
-        return;
-    }
-
-    for (const auto &[key, value] : gConfig.propMap) {
-        jclass targetClass = buildClass;
-        jfieldID fieldId = gEnv->GetStaticFieldID(buildClass, key.c_str(), "Ljava/lang/String;");
-        if (gEnv->ExceptionCheck()) {
-            gEnv->ExceptionClear();
-            fieldId = gEnv->GetStaticFieldID(versionClass, key.c_str(), "Ljava/lang/String;");
-            targetClass = versionClass;
-            if (gEnv->ExceptionCheck()) {
-                gEnv->ExceptionClear();
-                continue;
-            }
-        }
-
-        jstring jValue = gEnv->NewStringUTF(value.c_str());
-        gEnv->SetStaticObjectField(targetClass, fieldId, jValue);
-        if (gEnv->ExceptionCheck()) {
-            gEnv->ExceptionClear();
-            gEnv->DeleteLocalRef(jValue);
-            continue;
-        }
-
-        LOGD("Set '%s' to '%s'", key.c_str(), value.c_str());
-        gEnv->DeleteLocalRef(jValue);
-    }
-
-    gEnv->DeleteLocalRef(versionClass);
-    gEnv->DeleteLocalRef(buildClass);
-}
-
-void injectDex() {
-    if (gDexBytes.empty()) {
-        LOGD("[INJECT] No dex payload available");
-        return;
-    }
-
-    jclass classLoaderClass = gEnv->FindClass("java/lang/ClassLoader");
-    jmethodID getSystemClassLoader = gEnv->GetStaticMethodID(
-            classLoaderClass, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
-    jobject systemClassLoader = gEnv->CallStaticObjectMethod(classLoaderClass, getSystemClassLoader);
-    if (gEnv->ExceptionCheck()) {
-        gEnv->ExceptionDescribe();
-        gEnv->ExceptionClear();
-        return;
-    }
-
-    jobject dexBuffer = gEnv->NewDirectByteBuffer(gDexBytes.data(), static_cast<jlong>(gDexBytes.size()));
-    jclass inMemoryClassLoaderClass = gEnv->FindClass("dalvik/system/InMemoryDexClassLoader");
-    jmethodID inMemoryClassLoaderInit = gEnv->GetMethodID(
-            inMemoryClassLoaderClass, "<init>", "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V");
-    jobject dexClassLoader = gEnv->NewObject(
-            inMemoryClassLoaderClass, inMemoryClassLoaderInit, dexBuffer, systemClassLoader);
-    if (gEnv->ExceptionCheck()) {
-        gEnv->ExceptionDescribe();
-        gEnv->ExceptionClear();
-        return;
-    }
-
-    jmethodID loadClass = gEnv->GetMethodID(
-            classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
-    jstring entryClassName = gEnv->NewStringUTF("es.chiteroman.playintegrityfix.EntryPoint");
-    jobject entryClassObject = gEnv->CallObjectMethod(dexClassLoader, loadClass, entryClassName);
-    if (gEnv->ExceptionCheck()) {
-        gEnv->ExceptionDescribe();
-        gEnv->ExceptionClear();
-        return;
-    }
-
-    jclass entryPointClass = static_cast<jclass>(entryClassObject);
-    jmethodID entryInit = gEnv->GetStaticMethodID(entryPointClass, "init", "(Ljava/lang/String;ZZZZLjava/lang/String;)V");
-    const std::string json = propMapToJson();
-    const std::string telephonyJson = telephonyMapToJson();
-    jstring jsonString = gEnv->NewStringUTF(json.c_str());
-    jstring telephonyJsonString = gEnv->NewStringUTF(telephonyJson.c_str());
-    gEnv->CallStaticVoidMethod(entryPointClass, entryInit, jsonString, gConfig.spoofProvider,
-                               gConfig.spoofSignature, gConfig.spoofBuild, gConfig.spoofTelephony, telephonyJsonString);
-    if (gEnv->ExceptionCheck()) {
-        gEnv->ExceptionDescribe();
-        gEnv->ExceptionClear();
-    }
-    gEnv->DeleteLocalRef(telephonyJsonString);
-    gEnv->DeleteLocalRef(jsonString);
-    gEnv->DeleteLocalRef(entryClassObject);
-    gEnv->DeleteLocalRef(entryClassName);
-    gEnv->DeleteLocalRef(dexClassLoader);
-    gEnv->DeleteLocalRef(inMemoryClassLoaderClass);
-    gEnv->DeleteLocalRef(dexBuffer);
-    gEnv->DeleteLocalRef(systemClassLoader);
-    gEnv->DeleteLocalRef(classLoaderClass);
-}
-
-bool requestPayload(int fd) {
-    if (fd < 0) {
-        return false;
-    }
-
-    applySocketTimeout(fd);
-
-    bool ok = writeExact(fd, &COMMAND_LOAD_PAYLOAD, sizeof(COMMAND_LOAD_PAYLOAD));
-    bool companionOk = false;
-    ok = ok && readExact(fd, &companionOk, sizeof(companionOk));
-    if (!ok || !companionOk) {
-        close(fd);
-        return false;
-    }
-
-    ok = readConfig(fd, gConfig);
-    if (ok && gConfig.needsDex()) {
-        ok = readVector(fd, gDexBytes);
-    } else {
-        gDexBytes.clear();
-    }
-
-    close(fd);
-    if (!ok) {
-        gDexBytes.clear();
-        gConfig = {};
-        return false;
-    }
-    return true;
-}
-
-void companion(int fd) {
-    applySocketTimeout(fd);
-
-    bool ok = verifyModule(MODULE_PROP, MODULE_PROP_CHECKSUM_HEX);
-    uint8_t command = 0;
-    ok = ok && readExact(fd, &command, sizeof(command));
-    ok = ok && command == COMMAND_LOAD_PAYLOAD;
-
-    std::vector<uint8_t> propBytes;
-    std::vector<uint8_t> dexBytes;
-    pif::Config config;
-
-    if (ok) {
-        ok = loadPropBytes(propBytes);
-    }
-    if (ok) {
-        const std::string_view propView(reinterpret_cast<const char *>(propBytes.data()), propBytes.size());
-        config = pif::parseConfig(propView);
-    }
-    if (ok && config.needsDex()) {
-        ok = readFileBytes(DEX_PATH, dexBytes);
-    }
-
-    writeExact(fd, &ok, sizeof(ok));
-    if (!ok) {
-        return;
-    }
-
-    ok = writeConfig(fd, config);
-    if (ok && config.needsDex()) {
-        ok = writeVector(fd, dexBytes);
-    }
-
-    if (!ok) {
-        LOGE("[COMPANION] failed to send payload");
-    }
-}
-
-}
-
-using namespace zygisk;
-
-class PlayIntegrityFix : public ModuleBase {
-public:
-    void onLoad(Api *api_, JNIEnv *env_) override {
-        api = api_;
-        env = env_;
-    }
-
-    void preAppSpecialize(AppSpecializeArgs *args) override {
-        payloadLoaded = false;
-        isGmsUnstable = false;
-        isVending = false;
-        gConfig = {};
-        gDexBytes.clear();
-
-        if (!args) {
-            api->setOption(DLCLOSE_MODULE_LIBRARY);
-            return;
-        }
-
-        if (access("/data/adb/pif_script_only", F_OK) == 0) {
-            api->setOption(DLCLOSE_MODULE_LIBRARY);
-            return;
-        }
-
-        std::string dir;
-        std::string name;
-
-        const char *rawDir = env->GetStringUTFChars(args->app_data_dir, nullptr);
-        if (rawDir) {
-            dir = rawDir;
-            env->ReleaseStringUTFChars(args->app_data_dir, rawDir);
-        }
-
-        const char *rawName = env->GetStringUTFChars(args->nice_name, nullptr);
-        if (rawName) {
-            name = rawName;
-            env->ReleaseStringUTFChars(args->nice_name, rawName);
-        }
-
-        const std::string_view appDir(dir);
-        const bool isGms = appDir.ends_with("/com.google.android.gms") || appDir.ends_with("/com.android.vending");
-        if (!isGms) {
-            api->setOption(DLCLOSE_MODULE_LIBRARY);
-            return;
-        }
-
-        api->setOption(FORCE_DENYLIST_UNMOUNT);
-
-        const std::string_view niceName(name);
-        isGmsUnstable = niceName == DROIDGUARD_PACKAGE;
-        isVending = niceName == VENDING_PACKAGE;
-        if (!isGmsUnstable && !isVending) {
-            api->setOption(DLCLOSE_MODULE_LIBRARY);
-            return;
-        }
-
-        payloadLoaded = requestPayload(api->connectCompanion());
-        if (!payloadLoaded) {
-            api->setOption(DLCLOSE_MODULE_LIBRARY);
-        }
-    }
-
-    void postAppSpecialize(const AppSpecializeArgs *args) override {
-        if (!payloadLoaded) {
-            return;
-        }
-
-        gEnv = env;
-
-        if (isGmsUnstable) {
-            if (gConfig.spoofBuild) {
-                updateBuildFields();
-            }
-
-            if (gConfig.needsDex()) {
-                injectDex();
-            } else {
-                LOGD("[INJECT] Dex payload skipped because spoofProvider and spoofSignature are false");
-            }
-
-            if (gConfig.spoofProps) {
-                doHook();
-            }
-        } else if (isVending) {
-            if (gConfig.spoofVendingBuild) {
-                updateBuildFields();
-            } else if (gConfig.spoofVendingSdk) {
-                doSpoofVending();
-            }
-        }
-    }
-
-    void preServerSpecialize(ServerSpecializeArgs *args) override {
-        api->setOption(DLCLOSE_MODULE_LIBRARY);
-    }
-
-private:
-    Api *api = nullptr;
-    JNIEnv *env = nullptr;
-    bool payloadLoaded = false;
-    bool isGmsUnstable = false;
-    bool isVending = false;
-};
-
-REGISTER_ZYGISK_MODULE(PlayIntegrityFix)
-REGISTER_ZYGISK_COMPANION(companion)
+  #include "Dobby/include/dobby.h"
+  #include "pif_config.hpp"
+
+  #include <android/log.h>
+  #include <jni.h>
+  #include <string>
+  #include <string_view>
+  #include <sys/socket.h>
+  #include <sys/system_properties.h>
+  #include <sys/time.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+  #include <vector>
+  #include <cstdio>
+  #include <cstring>
+
+  #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "TeleInject", __VA_ARGS__)
+  #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "TeleInject", __VA_ARGS__)
+
+  #define DEX_PATH      "/data/adb/modules/teleinject/classes.dex"
+  #define MODULE_PROP   "/data/adb/modules/teleinject/module.prop"
+  #define CONFIG_PATH   "/data/adb/modules/teleinject/telephony.conf"
+  #define CUSTOM_CONFIG "/data/adb/teleinject.conf"
+
+  namespace {
+
+  constexpr uint8_t COMMAND_LOAD_PAYLOAD = 1;
+  constexpr int PAYLOAD_TIMEOUT_MS = 5000;
+
+  JNIEnv *gEnv = nullptr;
+  pif::Config gConfig;
+  std::vector<uint8_t> gDexBytes;
+
+  using T_Callback = void (*)(void *, const char *, const char *, uint32_t);
+
+  T_Callback o_callback = nullptr;
+  void (*o_system_property_read_callback)(prop_info *, T_Callback, void *) = nullptr;
+
+  ssize_t xread(int fd, void *buffer, size_t count) {
+      ssize_t total = 0; char *buf = (char*)buffer; size_t rem = count;
+      while (rem > 0) {
+          ssize_t r = TEMP_FAILURE_RETRY(read(fd, buf, rem));
+          if (r < 0) return -1;
+          if (r == 0) break;
+          buf += r; total += r; rem -= r;
+      }
+      return total;
+  }
+  ssize_t xwrite(int fd, const void *buffer, size_t count) {
+      ssize_t total = 0; const char *buf = (const char*)buffer; size_t rem = count;
+      while (rem > 0) {
+          ssize_t r = TEMP_FAILURE_RETRY(write(fd, buf, rem));
+          if (r < 0) return -1;
+          if (r == 0) break;
+          buf += r; total += r; rem -= r;
+      }
+      return total;
+  }
+  bool readExact(int fd, void *buf, size_t s) { return xread(fd, buf, s) == (ssize_t)s; }
+  bool writeExact(int fd, const void *buf, size_t s) { return xwrite(fd, buf, s) == (ssize_t)s; }
+
+  void applySocketTimeout(int fd) {
+      const timeval timeout{
+              .tv_sec = PAYLOAD_TIMEOUT_MS / 1000,
+              .tv_usec = (suseconds_t)((PAYLOAD_TIMEOUT_MS % 1000) * 1000),
+      };
+      setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+      setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+  }
+
+  bool readFileBytes(const char *p, std::vector<uint8_t> &out) {
+      out.clear();
+      int fd = open(p, O_RDONLY | O_CLOEXEC);
+      if (fd < 0) return false;
+      std::vector<uint8_t> buf(4096);
+      ssize_t n = 0;
+      while ((n = TEMP_FAILURE_RETRY(read(fd, buf.data(), buf.size()))) > 0) {
+          out.insert(out.end(), buf.begin(), buf.begin() + n);
+      }
+      close(fd);
+      return n == 0 && !out.empty();
+  }
+
+  bool loadConfigBytes(std::vector<uint8_t> &out) {
+      if (readFileBytes(CUSTOM_CONFIG, out)) return true;
+      return readFileBytes(CONFIG_PATH, out);
+  }
+
+  bool writeVector(int fd, const std::vector<uint8_t> &b) {
+      const uint32_t s = (uint32_t)b.size();
+      if (!writeExact(fd, &s, sizeof(s))) return false;
+      return s == 0 || writeExact(fd, b.data(), s);
+  }
+  bool readVector(int fd, std::vector<uint8_t> &b) {
+      uint32_t s = 0;
+      if (!readExact(fd, &s, sizeof(s))) return false;
+      b.resize(s);
+      return s == 0 || readExact(fd, b.data(), s);
+  }
+
+  std::string telephonyMapToJson() {
+      std::string j = "{";
+      bool first = true;
+      for (const auto &[k, v] : gConfig.telephonyMap) {
+          if (!first) j += ",";
+          first = false;
+          j += "\"" + k + "\":\"" + v + "\"";
+      }
+      j += "}";
+      return j;
+  }
+
+  std::string flagsToJson() {
+      auto b = [](bool x){ return x ? "true" : "false"; };
+      std::string j = "{";
+      j += std::string("\"hookTelephonyManager\":") + b(gConfig.hookTelephonyManager) + ",";
+      j += std::string("\"hookSubscriptionInfo\":") + b(gConfig.hookSubscriptionInfo) + ",";
+      j += std::string("\"hookEmergencyNumber\":") + b(gConfig.hookEmergencyNumber);
+      j += "}";
+      return j;
+  }
+
+  // Map our config keys to the system property names that
+  // android.telephony.TelephonyProperties / SemSystemProperties read from.
+  struct PropMap { const char* prop; const char* configKey; };
+  static const PropMap kPropMappings[] = {
+      // android.telephony.TelephonyProperties
+      {"gsm.operator.iso-country",       "NETWORK_COUNTRY_ISO"},
+      {"gsm.operator.numeric",           "NETWORK_OPERATOR_NUMERIC"},
+      {"gsm.operator.alpha",             "OPERATOR_NAME"},
+      {"gsm.sim.operator.iso-country",   "SIM_COUNTRY_ISO"},
+      {"gsm.sim.operator.numeric",       "SIM_OPERATOR_NUMERIC"},
+      {"gsm.sim.operator.alpha",         "SIM_OPERATOR_NAME"},
+      {"gsm.network.type",               nullptr}, // intentionally null
+      // Samsung SemSystemProperties
+      {"ro.csc.country_code",            "COUNTRY_CODE"},
+      {"ro.csc.countryiso_code",         "COUNTRY_ISO"},
+      {"persist.sys.timezone",           nullptr},
+  };
+
+  static const char* lookupSpoofValue(const std::string_view& propName) {
+      if (!gConfig.spoofTelephony) return nullptr;
+      bool sem = (propName.find("ro.csc") == 0);
+      if (sem && !gConfig.hookSemSystemProperties) return nullptr;
+      if (!sem && !gConfig.hookTelephonyProperties) return nullptr;
+
+      for (const auto& m : kPropMappings) {
+          if (!m.configKey) continue;
+          if (propName == m.prop) {
+              auto it = gConfig.telephonyMap.find(m.configKey);
+              if (it != gConfig.telephonyMap.end() && !it->second.empty()) {
+                  return it->second.c_str();
+              }
+          }
+      }
+      return nullptr;
+  }
+
+  void modifyCallback(void *cookie, const char *name, const char *value, uint32_t serial) {
+      if (!cookie || !name || !value || !o_callback) return;
+
+      const char *oldValue = value;
+      const std::string_view prop(name);
+      if (const char* spoof = lookupSpoofValue(prop); spoof) {
+          value = spoof;
+      }
+
+      if (gConfig.debug && strcmp(oldValue, value) != 0) {
+          LOGD("[%s]: %s -> %s", name, oldValue, value);
+      }
+      o_callback(cookie, name, value, serial);
+  }
+
+  void systemPropertyReadCallback(prop_info *pi, T_Callback callback, void *cookie) {
+      if (pi && callback && cookie) o_callback = callback;
+      o_system_property_read_callback(pi, modifyCallback, cookie);
+  }
+
+  bool doHookProperty() {
+      void *ptr = DobbySymbolResolver(nullptr, "__system_property_read_callback");
+      if (ptr && DobbyHook(ptr, (void*)systemPropertyReadCallback,
+                           (void**)&o_system_property_read_callback) == 0) {
+          LOGD("hooked __system_property_read_callback at %p", ptr);
+          return true;
+      }
+      LOGE("hook __system_property_read_callback failed");
+      return false;
+  }
+
+  void injectDex() {
+      if (gDexBytes.empty()) {
+          LOGD("[INJECT] no dex payload available");
+          return;
+      }
+
+      jclass classLoaderClass = gEnv->FindClass("java/lang/ClassLoader");
+      jmethodID getSystemClassLoader = gEnv->GetStaticMethodID(
+              classLoaderClass, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+      jobject systemClassLoader = gEnv->CallStaticObjectMethod(classLoaderClass, getSystemClassLoader);
+      if (gEnv->ExceptionCheck()) { gEnv->ExceptionClear(); return; }
+
+      jobject dexBuffer = gEnv->NewDirectByteBuffer(gDexBytes.data(), (jlong)gDexBytes.size());
+      jclass inMem = gEnv->FindClass("dalvik/system/InMemoryDexClassLoader");
+      jmethodID inMemInit = gEnv->GetMethodID(
+              inMem, "<init>", "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V");
+      jobject loader = gEnv->NewObject(inMem, inMemInit, dexBuffer, systemClassLoader);
+      if (gEnv->ExceptionCheck()) { gEnv->ExceptionClear(); return; }
+
+      jmethodID loadClass = gEnv->GetMethodID(
+              classLoaderClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;");
+      jstring entryClassName = gEnv->NewStringUTF("es.chiteroman.playintegrityfix.EntryPoint");
+      jobject entryClassObject = gEnv->CallObjectMethod(loader, loadClass, entryClassName);
+      if (gEnv->ExceptionCheck()) { gEnv->ExceptionClear(); return; }
+
+      jclass entryPointClass = (jclass)entryClassObject;
+      // signature: init(String telephonyJson, String flagsJson)
+      jmethodID entryInit = gEnv->GetStaticMethodID(entryPointClass, "init",
+          "(Ljava/lang/String;Ljava/lang/String;)V");
+      const std::string telephonyJson = telephonyMapToJson();
+      const std::string flagsJson = flagsToJson();
+      jstring jt = gEnv->NewStringUTF(telephonyJson.c_str());
+      jstring jf = gEnv->NewStringUTF(flagsJson.c_str());
+      gEnv->CallStaticVoidMethod(entryPointClass, entryInit, jt, jf);
+      if (gEnv->ExceptionCheck()) {
+          gEnv->ExceptionDescribe();
+          gEnv->ExceptionClear();
+      }
+      gEnv->DeleteLocalRef(jt);
+      gEnv->DeleteLocalRef(jf);
+      gEnv->DeleteLocalRef(entryClassObject);
+      gEnv->DeleteLocalRef(entryClassName);
+      gEnv->DeleteLocalRef(loader);
+      gEnv->DeleteLocalRef(inMem);
+      gEnv->DeleteLocalRef(dexBuffer);
+      gEnv->DeleteLocalRef(systemClassLoader);
+      gEnv->DeleteLocalRef(classLoaderClass);
+  }
+
+  bool requestPayload(int fd) {
+      if (fd < 0) return false;
+      applySocketTimeout(fd);
+      bool ok = writeExact(fd, &COMMAND_LOAD_PAYLOAD, sizeof(COMMAND_LOAD_PAYLOAD));
+      bool companionOk = false;
+      ok = ok && readExact(fd, &companionOk, sizeof(companionOk));
+      if (!ok || !companionOk) { close(fd); return false; }
+
+      ok = readConfig(fd, gConfig);
+      if (ok && gConfig.needsDex()) {
+          ok = readVector(fd, gDexBytes);
+      } else {
+          gDexBytes.clear();
+      }
+      close(fd);
+      if (!ok) { gDexBytes.clear(); gConfig = {}; return false; }
+      return true;
+  }
+
+  void companion(int fd) {
+      applySocketTimeout(fd);
+      uint8_t command = 0;
+      bool ok = readExact(fd, &command, sizeof(command)) && command == COMMAND_LOAD_PAYLOAD;
+
+      std::vector<uint8_t> cfgBytes;
+      std::vector<uint8_t> dexBytes;
+      pif::Config config;
+
+      if (ok) ok = loadConfigBytes(cfgBytes);
+      if (ok) {
+          const std::string_view view((const char*)cfgBytes.data(), cfgBytes.size());
+          config = pif::parseConfig(view);
+      }
+      if (ok && config.needsDex()) ok = readFileBytes(DEX_PATH, dexBytes);
+
+      writeExact(fd, &ok, sizeof(ok));
+      if (!ok) return;
+
+      ok = writeConfig(fd, config);
+      if (ok && config.needsDex()) ok = writeVector(fd, dexBytes);
+      if (!ok) LOGE("[COMPANION] failed to send payload");
+  }
+
+  }
+
+  using namespace zygisk;
+
+  class TeleInjectModule : public ModuleBase {
+  public:
+      void onLoad(Api *api_, JNIEnv *env_) override {
+          api = api_;
+          env = env_;
+      }
+
+      void preAppSpecialize(AppSpecializeArgs *args) override {
+          payloadLoaded = false;
+          appAllowed = false;
+          gConfig = {};
+          gDexBytes.clear();
+
+          if (!args) {
+              api->setOption(DLCLOSE_MODULE_LIBRARY);
+              return;
+          }
+
+          std::string name;
+          const char *raw = env->GetStringUTFChars(args->nice_name, nullptr);
+          if (raw) {
+              name = raw;
+              env->ReleaseStringUTFChars(args->nice_name, raw);
+          }
+          if (name.empty()) {
+              api->setOption(DLCLOSE_MODULE_LIBRARY);
+              return;
+          }
+
+          // Load config to know which apps are allowed.
+          payloadLoaded = requestPayload(api->connectCompanion());
+          if (!payloadLoaded || !gConfig.spoofTelephony) {
+              api->setOption(DLCLOSE_MODULE_LIBRARY);
+              payloadLoaded = false;
+              return;
+          }
+
+          // Allow exact match, or "*" wildcard meaning every app.
+          appAllowed = gConfig.isAllowed(name) || gConfig.isAllowed("*");
+          if (!appAllowed) {
+              api->setOption(DLCLOSE_MODULE_LIBRARY);
+              return;
+          }
+
+          api->setOption(FORCE_DENYLIST_UNMOUNT);
+          currentPackage = name;
+      }
+
+      void postAppSpecialize(const AppSpecializeArgs *args) override {
+          if (!payloadLoaded || !appAllowed) return;
+          gEnv = env;
+
+          if (gConfig.debug) {
+              LOGD("[APP] hooking %s", currentPackage.c_str());
+          }
+
+          if (gConfig.needsDex()) {
+              injectDex();
+          }
+          if (gConfig.needsPropertyHook()) {
+              doHookProperty();
+          }
+      }
+
+      void preServerSpecialize(ServerSpecializeArgs *args) override {
+          api->setOption(DLCLOSE_MODULE_LIBRARY);
+      }
+
+  private:
+      Api *api = nullptr;
+      JNIEnv *env = nullptr;
+      bool payloadLoaded = false;
+      bool appAllowed = false;
+      std::string currentPackage;
+  };
+
+  REGISTER_ZYGISK_MODULE(TeleInjectModule)
+  REGISTER_ZYGISK_COMPANION(companion)
+  

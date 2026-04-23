@@ -1,31 +1,48 @@
 #pragma once
 
-#include <string>
-#include <string_view>
-#include <unordered_map>
+  #include <string>
+  #include <string_view>
+  #include <unordered_map>
+  #include <unordered_set>
 
-namespace pif {
-    struct Config {
-        std::unordered_map<std::string, std::string> propMap;
-        std::unordered_map<std::string, std::string> telephonyMap;
-        bool spoofBuild = true;
-        bool spoofProps = true;
-        bool spoofProvider = false;
-        bool spoofSignature = false;
-        bool spoofTelephony = false;
-        bool debug = false;
-        std::string deviceInitialSdkInt = "21";
-        std::string securityPatch;
-        std::string buildId;
-        bool spoofVendingSdk = false;
-        bool spoofVendingBuild = false;
+  namespace pif {
+      struct Config {
+          // Spoof values (key -> value), only telephony keys are used.
+          std::unordered_map<std::string, std::string> telephonyMap;
 
-        [[nodiscard]] bool needsDex() const {
-            return spoofProvider || spoofSignature;
-        }
-    };
+          // Master switch
+          bool spoofTelephony = true;
 
-    [[nodiscard]] Config parseConfig(std::string_view content);
-    [[nodiscard]] bool writeConfig(int fd, const Config &config);
-    [[nodiscard]] bool readConfig(int fd, Config &config);
-}
+          // Per-class hook toggles
+          bool hookTelephonyManager      = true;
+          bool hookSubscriptionInfo      = true;
+          bool hookEmergencyNumber       = true;
+          bool hookTelephonyProperties   = true;
+          bool hookSemSystemProperties   = true;
+
+          // Allowed app process names (e.g. com.example.app). If empty, hook nothing.
+          std::unordered_set<std::string> allowedApps;
+
+          bool debug = false;
+
+          [[nodiscard]] bool needsDex() const {
+              // We always need the dex if telephony spoof is on (the dex
+              // contains TelephonyHooker which performs Java-side hooks).
+              return spoofTelephony && (hookTelephonyManager || hookSubscriptionInfo || hookEmergencyNumber);
+          }
+
+          [[nodiscard]] bool needsPropertyHook() const {
+              // Property-level hook covers TelephonyProperties and SemSystemProperties.
+              return spoofTelephony && (hookTelephonyProperties || hookSemSystemProperties);
+          }
+
+          [[nodiscard]] bool isAllowed(const std::string& pkg) const {
+              return allowedApps.find(pkg) != allowedApps.end();
+          }
+      };
+
+      [[nodiscard]] Config parseConfig(std::string_view content);
+      [[nodiscard]] bool writeConfig(int fd, const Config &config);
+      [[nodiscard]] bool readConfig(int fd, Config &config);
+  }
+  
