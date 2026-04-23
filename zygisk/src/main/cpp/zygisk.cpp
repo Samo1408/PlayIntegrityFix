@@ -117,7 +117,8 @@
       j += std::string("\"hookTelephonyManager\":") + b(gConfig.hookTelephonyManager) + ",";
       j += std::string("\"hookSubscriptionInfo\":") + b(gConfig.hookSubscriptionInfo) + ",";
       j += std::string("\"hookEmergencyNumber\":") + b(gConfig.hookEmergencyNumber) + ",";
-      j += std::string("\"hookULocale\":") + b(gConfig.hookULocale);
+      j += std::string("\"hookULocale\":") + b(gConfig.hookULocale) + ",";
+      j += std::string("\"hookCellIdentity\":") + b(gConfig.hookCellIdentity);
       j += "}";
       return j;
   }

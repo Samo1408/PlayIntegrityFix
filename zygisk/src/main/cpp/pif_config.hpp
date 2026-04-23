@@ -18,13 +18,14 @@
           bool hookTelephonyProperties   = true; // android.sysprop.TelephonyProperties
           bool hookSemTelephonyProps     = true; // com.samsung.telephony.sysprop.SemTelephonyProps
           bool hookULocale               = true; // android.icu.util.ULocale (getDisplayCountry)
+          bool hookCellIdentity          = true; // android.telephony.CellIdentity{,Gsm,Lte,Wcdma,Tdscdma,Nr,Cdma}
 
           std::unordered_set<std::string> allowedApps;
           bool debug = false;
 
           [[nodiscard]] bool needsDex() const {
               return spoofTelephony && (hookTelephonyManager || hookSubscriptionInfo
-                  || hookEmergencyNumber || hookULocale);
+                  || hookEmergencyNumber || hookULocale || hookCellIdentity);
           }
           [[nodiscard]] bool needsPropertyHook() const {
               return spoofTelephony && (hookTelephonyProperties || hookSemTelephonyProps);

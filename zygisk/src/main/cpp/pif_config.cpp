@@ -111,6 +111,7 @@
           if (auto v = take("hookTelephonyProperties"); !v.empty()) config.hookTelephonyProperties = parseBool(v);
           if (auto v = take("hookSemTelephonyProps"); !v.empty()) config.hookSemTelephonyProps = parseBool(v);
           if (auto v = take("hookULocale"); !v.empty()) config.hookULocale = parseBool(v);
+          if (auto v = take("hookCellIdentity"); !v.empty()) config.hookCellIdentity = parseBool(v);
           if (auto v = take("DEBUG"); !v.empty()) config.debug = parseBool(v);
 
           if (auto v = take("allowedApps"); !v.empty()) {
@@ -143,6 +144,7 @@
           ok = ok && writeExact(fd, &config.hookTelephonyProperties, sizeof(config.hookTelephonyProperties));
           ok = ok && writeExact(fd, &config.hookSemTelephonyProps, sizeof(config.hookSemTelephonyProps));
           ok = ok && writeExact(fd, &config.hookULocale, sizeof(config.hookULocale));
+          ok = ok && writeExact(fd, &config.hookCellIdentity, sizeof(config.hookCellIdentity));
           ok = ok && writeExact(fd, &config.debug, sizeof(config.debug));
 
           const uint32_t telephonyCount = (uint32_t)config.telephonyMap.size();
@@ -169,6 +171,7 @@
           ok = ok && readExact(fd, &parsed.hookTelephonyProperties, sizeof(parsed.hookTelephonyProperties));
           ok = ok && readExact(fd, &parsed.hookSemTelephonyProps, sizeof(parsed.hookSemTelephonyProps));
           ok = ok && readExact(fd, &parsed.hookULocale, sizeof(parsed.hookULocale));
+          ok = ok && readExact(fd, &parsed.hookCellIdentity, sizeof(parsed.hookCellIdentity));
           ok = ok && readExact(fd, &parsed.debug, sizeof(parsed.debug));
 
           uint32_t telephonyCount = 0;
