@@ -2,7 +2,7 @@
 
 # Tricky Store Security Patch Util
 
-MODDIR="/data/adb/modules/playintegrityfix"
+MODDIR="/data/adb/modules/tryinject"
 AUTO_FLAG="/data/adb/tricky_store/pif_auto_security_patch"
 
 case "$1" in
@@ -12,8 +12,8 @@ esac
 
 if [ -f "/data/adb/pif.prop" ]; then
     PIFPROP="/data/adb/pif.prop"
-elif [ -f "/data/adb/modules/playintegrityfix/pif.prop" ]; then
-    PIFPROP="/data/adb/modules/playintegrityfix/pif.prop"
+elif [ -f "/data/adb/modules/tryinject/pif.prop" ]; then
+    PIFPROP="/data/adb/modules/tryinject/pif.prop"
 else
     echo "! No pif.prop found, aborting..."
     exit 1

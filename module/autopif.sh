@@ -1,20 +1,20 @@
 #!/bin/sh
 
 PATH=/data/adb/ap/bin:/data/adb/ksu/bin:/data/adb/magisk:/data/data/com.termux/files/usr/bin:$PATH
-MODDIR=/data/adb/modules/playintegrityfix
+MODDIR=/data/adb/modules/tryinject
 version=$(grep "^version=" $MODDIR/module.prop | sed 's/version=//g')
 
 . $MODDIR/common_func.sh
 
 # lets try to use tmpfs for processing
 TEMPDIR="$MODDIR/temp" #fallback
-[ -w /sbin ] && TEMPDIR="/sbin/playintegrityfix"
-[ -w /debug_ramdisk ] && TEMPDIR="/debug_ramdisk/playintegrityfix"
-[ -w /dev ] && TEMPDIR="/dev/playintegrityfix"
+[ -w /sbin ] && TEMPDIR="/sbin/tryinject"
+[ -w /debug_ramdisk ] && TEMPDIR="/debug_ramdisk/tryinject"
+[ -w /dev ] && TEMPDIR="/dev/tryinject"
 mkdir -p "$TEMPDIR"
 cd "$TEMPDIR"
 
-echo "[+] PlayIntegrityFix $version"
+echo "[+] TryInject $version"
 echo "[+] $(basename "$0")"
 printf "\n\n"
 
