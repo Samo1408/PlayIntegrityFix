@@ -1,32 +1,38 @@
 package es.chiteroman.playintegrityfix;
 
   import android.util.Log;
-
   import org.json.JSONObject;
 
   import java.lang.reflect.Field;
   import java.util.HashMap;
   import java.util.Iterator;
+  import java.util.Locale;
   import java.util.Map;
 
   /**
-   * Telephony spoofing performed at the Java level.
+   * Java-side telephony spoof helpers.
    *
-   * Most spoofing is actually done at the native level by intercepting
-   * __system_property_read_callback in zygisk.cpp (this covers
-   * TelephonyProperties and SemSystemProperties paths used by
-   * TelephonyManager / SubscriptionInfo internally).
+   * The bulk of the spoofing is done in native code by intercepting
+   * __system_property_read_callback. That single hook is what fakes the
+   * values returned by the Suppliers in:
+   *   - android.sysprop.TelephonyProperties
+   *       icc_operator_numeric / icc_operator_iso_country / icc_operator_alpha
+   *       operator_numeric    / operator_iso_country     / operator_alpha
+   *       (and their lambda$ cached suppliers)
+   *   - com.samsung.telephony.sysprop.SemTelephonyProps
+   *       same getters but reading the Samsung "ril.*" / "ro.csc.*" props
    *
-   * On top of that we patch any cached static fields that are populated
-   * once at process start, so that a value already cached from a real
-   * read is replaced with the spoofed one for classes that snapshot
-   * properties: SubscriptionInfo, EmergencyNumber, etc.
+   * On top of that we patch a few cached Java fields here so that values
+   * that were already snapshotted before the property hook was installed
+   * are still replaced. We also try to override
+   * android.icu.util.ULocale.getDisplayCountry to return our spoofed name.
    */
   public class TelephonyHooker {
       public static final String TAG = "TeleInject-J";
       private static final Map<String, String> values = new HashMap<>();
 
-      public static void init(String json, boolean hookTM, boolean hookSI, boolean hookEN) {
+      public static void init(String json, boolean hookTM, boolean hookSI,
+                              boolean hookEN, boolean hookUL) {
           if (json == null || json.isEmpty()) {
               Log.i(TAG, "No telephony configuration provided");
               return;
@@ -48,21 +54,11 @@ package es.chiteroman.playintegrityfix;
           if (hookTM) hookTelephonyManager();
           if (hookSI) hookSubscriptionInfo();
           if (hookEN) hookEmergencyNumber();
+          clearSyspropCaches();      // android.sysprop.TelephonyProperties + Samsung
+          if (hookUL) hookULocale();
       }
 
-      /** Try to set a static or instance field by name, swallow errors. */
-      private static void setField(Class<?> cls, Object instance, String fieldName, Object value) {
-          if (value == null) return;
-          try {
-              Field f = findField(cls, fieldName);
-              if (f == null) return;
-              f.setAccessible(true);
-              f.set(instance, value);
-              Log.d(TAG, cls.getSimpleName() + "." + fieldName + " = " + value);
-          } catch (Throwable t) {
-              // silently ignore - field may not exist on this Android version
-          }
-      }
+      private static String s(String k) { return values.get(k); }
 
       private static Field findField(Class<?> cls, String name) {
           Class<?> c = cls;
@@ -74,23 +70,75 @@ package es.chiteroman.playintegrityfix;
           return null;
       }
 
-      private static String s(String k) { return values.get(k); }
-      private static Integer i(String k) {
-          String v = values.get(k);
-          if (v == null || v.isEmpty()) return null;
-          try { return Integer.parseInt(v); } catch (NumberFormatException e) { return null; }
+      private static void setField(Class<?> cls, Object instance, String fieldName, Object value) {
+          if (value == null) return;
+          try {
+              Field f = findField(cls, fieldName);
+              if (f == null) return;
+              f.setAccessible(true);
+              f.set(instance, value);
+              Log.d(TAG, cls.getSimpleName() + "." + fieldName + " = " + value);
+          } catch (Throwable ignored) {}
       }
 
       /**
-       * android.telephony.TelephonyManager — most getters delegate to
-       * binder calls so they cannot be spoofed by reflection alone.
-       * What we can do: clear cached fields that some methods snapshot,
-       * so the next call re-reads from the (now spoofed) system property.
+       * android.sysprop.TelephonyProperties / SemTelephonyProps cache
+       * each getter's result in a static Optional-typed field whose name
+       * matches the getter (e.g. icc_operator_numeric, operator_alpha,
+       * lambda$icc_operator_numeric$7, ...). Null them so the next call
+       * re-reads the (now hooked) system property.
        */
+      private static final String[] SYSPROP_CACHE_FIELDS = {
+          // android.sysprop.TelephonyProperties getters
+          "icc_operator_numeric", "icc_operator_iso_country", "icc_operator_alpha",
+          "operator_numeric", "operator_iso_country", "operator_alpha",
+          // The Suppliers used internally are stored as lambda$ fields.
+          "lambda$icc_operator_numeric$7", "lambda$icc_operator_iso_country$9",
+          "lambda$icc_operator_alpha$8",
+          "lambda$operator_numeric$0", "lambda$operator_iso_country$2",
+          "lambda$operator_alpha$1",
+      };
+
+      private static void clearSyspropCaches() {
+          clearStaticFields("android.sysprop.TelephonyProperties", SYSPROP_CACHE_FIELDS);
+          clearStaticFields("com.samsung.telephony.sysprop.SemTelephonyProps", SYSPROP_CACHE_FIELDS);
+      }
+
+      private static void clearStaticFields(String className, String[] fields) {
+          try {
+              Class<?> c = Class.forName(className);
+              int cleared = 0;
+              for (String fname : fields) {
+                  Field f = findField(c, fname);
+                  if (f == null) continue;
+                  try {
+                      f.setAccessible(true);
+                      f.set(null, null);
+                      cleared++;
+                  } catch (Throwable ignored) {}
+              }
+              // also brute-force any *Optional* / *Supplier* static field on the class
+              for (Field f : c.getDeclaredFields()) {
+                  String t = f.getType().getName();
+                  if (t.contains("Optional") || t.contains("Supplier")) {
+                      try {
+                          f.setAccessible(true);
+                          f.set(null, null);
+                          cleared++;
+                      } catch (Throwable ignored) {}
+                  }
+              }
+              Log.i(TAG, className + ": cleared " + cleared + " cached field(s)");
+          } catch (ClassNotFoundException e) {
+              // class not present on this device (e.g. SemTelephonyProps on non-Samsung)
+          } catch (Throwable t) {
+              Log.e(TAG, "clearStaticFields " + className, t);
+          }
+      }
+
       private static void hookTelephonyManager() {
           try {
               Class<?> tm = Class.forName("android.telephony.TelephonyManager");
-              // These cached fields exist on some Android versions:
               for (String f : new String[]{"sCachedCountryIso", "sCachedNetworkOperator",
                       "sCachedSimOperator", "sCachedSimOperatorName"}) {
                   try {
@@ -105,15 +153,9 @@ package es.chiteroman.playintegrityfix;
           }
       }
 
-      /**
-       * android.telephony.SubscriptionInfo — instance fields populated by
-       * the system. We patch the SubscriptionManager cache so the next
-       * lookup is rebuilt with our spoofed property values.
-       */
       private static void hookSubscriptionInfo() {
           try {
               Class<?> sm = Class.forName("android.telephony.SubscriptionManager");
-              // Best effort: drop any cached SubscriptionInfo lists.
               for (String f : new String[]{"sCacheActiveList", "sCacheAllList",
                       "mSubInfoLocalCache"}) {
                   try {
@@ -129,32 +171,67 @@ package es.chiteroman.playintegrityfix;
           }
       }
 
-      /**
-       * android.telephony.emergency.EmergencyNumber — we cannot easily
-       * intercept binder calls but we can patch the static MNC/MCC fields
-       * on EmergencyNumberTracker if it has been initialised in this
-       * process so its lookups use spoofed values.
-       */
       private static void hookEmergencyNumber() {
           try {
               Class<?> en = Class.forName("android.telephony.emergency.EmergencyNumber");
-              String mcc = s("MCC_STRING");
-              String mnc = s("MNC_STRING");
-              if (mcc == null) mcc = s("MCC");
-              if (mnc == null) mnc = s("MNC");
-              // EmergencyNumber holds an mCountryIso field on most versions.
-              for (String f : new String[]{"mCountryIso", "sDefaultCountryIso"}) {
-                  String v = s("COUNTRY_ISO");
-                  if (v != null) setField(en, null, f, v);
+              String iso = s("COUNTRY_ISO");
+              if (iso != null) {
+                  for (String f : new String[]{"mCountryIso", "sDefaultCountryIso"}) {
+                      setField(en, null, f, iso);
+                  }
               }
-              // Optional: try to update tracker's MCC.
               try {
-                  Class<?> tracker = Class.forName("com.android.internal.telephony.emergency.EmergencyNumberTracker");
-                  if (mcc != null) setField(tracker, null, "mLastKnownEmergencyCountryIso", s("COUNTRY_ISO"));
+                  Class<?> tracker = Class.forName(
+                          "com.android.internal.telephony.emergency.EmergencyNumberTracker");
+                  if (iso != null) setField(tracker, null,
+                          "mLastKnownEmergencyCountryIso", iso);
               } catch (Throwable ignored) {}
               Log.i(TAG, "EmergencyNumber patched");
           } catch (Throwable t) {
               Log.e(TAG, "hookEmergencyNumber", t);
+          }
+      }
+
+      /**
+       * android.icu.util.ULocale.getDisplayCountry — returns the localized
+       * display name of a country (e.g. "United States"). We cannot
+       * re-implement the binder-backed method without a method-hook lib,
+       * but we can:
+       *   1. set the JVM default Locale's country to the spoofed ISO so
+       *      ULocale.getDefault() returns our country
+       *   2. clear ULocale's static caches so the change takes effect
+       */
+      private static void hookULocale() {
+          String iso = s("COUNTRY_ISO");
+          if (iso == null || iso.isEmpty()) return;
+          try {
+              String upper = iso.toUpperCase(Locale.ROOT);
+              // Update the JVM default locale's country.
+              Locale current = Locale.getDefault();
+              Locale spoofed = new Locale(current.getLanguage(), upper, current.getVariant());
+              Locale.setDefault(spoofed);
+              try {
+                  Locale.setDefault(Locale.Category.DISPLAY, spoofed);
+                  Locale.setDefault(Locale.Category.FORMAT, spoofed);
+              } catch (Throwable ignored) {}
+
+              // Clear ULocale caches so the new default is picked up.
+              Class<?> ul = Class.forName("android.icu.util.ULocale");
+              for (Field f : ul.getDeclaredFields()) {
+                  String n = f.getName();
+                  if (n.startsWith("default") || n.contains("CACHE")
+                          || f.getType().getName().contains("Cache")) {
+                      try {
+                          f.setAccessible(true);
+                          if ((f.getModifiers() & java.lang.reflect.Modifier.STATIC) != 0) {
+                              f.set(null, null);
+                          }
+                      } catch (Throwable ignored) {}
+                  }
+              }
+              Log.i(TAG, "ULocale: default country -> " + upper);
+          } catch (Throwable t) {
+              Log.e(TAG, "hookULocale", t);
           }
       }
   }
