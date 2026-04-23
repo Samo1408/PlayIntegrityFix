@@ -1,0 +1,22 @@
+{
+    "apps": [
+        {
+            "package_name": "me.harrygonzalez.simcardinfo",
+            "locale": "US",
+            "sim_country_iso": "US",
+            "hooks_enabled": false
+        },
+        {
+            "package_name": "com.example.app1",
+            "locale": "GB",
+            "sim_country_iso": "GB",
+            "hooks_enabled": true
+        },
+        {
+            "package_name": "com.example.app2",
+            "locale": "AE",
+            "sim_country_iso": "AE",
+            "hooks_enabled": true
+        }
+    ]
+}
