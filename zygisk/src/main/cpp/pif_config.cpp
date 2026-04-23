@@ -202,6 +202,10 @@ namespace pif {
             config.spoofSignature = parseBool(it->second);
             rawMap.erase(it);
         }
+        if (const auto it = rawMap.find("spoofTelephony"); it != rawMap.end()) {
+            config.spoofTelephony = parseBool(it->second);
+            rawMap.erase(it);
+        }
         if (const auto it = rawMap.find("DEBUG"); it != rawMap.end()) {
             config.debug = parseBool(it->second);
             rawMap.erase(it);
@@ -216,6 +220,21 @@ namespace pif {
             config.buildId = it->second;
         } else if (const auto it = config.propMap.find("ID"); it != config.propMap.end()) {
             config.buildId = it->second;
+        }
+
+        // Extract telephony settings from remaining rawMap
+        std::vector<std::string> telephonyKeys = {
+            "COUNTRY_ISO", "COUNTRY_CODE", "SIM_OPERATOR_NUMERIC", "SIM_OPERATOR",
+            "SIM_OPERATOR_NAME", "SIM_COUNTRY_ISO", "NETWORK_COUNTRY_ISO",
+            "NETWORK_OPERATOR_NUMERIC", "OPERATOR_NUMERIC", "OPERATOR_NAME",
+            "MCC", "MCC_STRING", "MNC", "MNC_STRING"
+        };
+        
+        for (const auto& key : telephonyKeys) {
+            if (const auto it = rawMap.find(key); it != rawMap.end()) {
+                config.telephonyMap[key] = it->second;
+                rawMap.erase(it);
+            }
         }
 
         config.propMap = std::move(rawMap);
@@ -236,6 +255,7 @@ namespace pif {
         ok = ok && writeExact(fd, &config.spoofProps, sizeof(config.spoofProps));
         ok = ok && writeExact(fd, &config.spoofProvider, sizeof(config.spoofProvider));
         ok = ok && writeExact(fd, &config.spoofSignature, sizeof(config.spoofSignature));
+        ok = ok && writeExact(fd, &config.spoofTelephony, sizeof(config.spoofTelephony));
         ok = ok && writeExact(fd, &config.debug, sizeof(config.debug));
         ok = ok && writeString(fd, config.deviceInitialSdkInt);
         ok = ok && writeString(fd, config.securityPatch);
@@ -250,6 +270,14 @@ namespace pif {
             ok = ok && writeString(fd, value);
         }
 
+        // Write telephony map
+        const uint32_t telephonyCount = static_cast<uint32_t>(config.telephonyMap.size());
+        ok = ok && writeExact(fd, &telephonyCount, sizeof(telephonyCount));
+        for (const auto &[key, value] : config.telephonyMap) {
+            ok = ok && writeString(fd, key);
+            ok = ok && writeString(fd, value);
+        }
+
         return ok;
     }
 
@@ -259,6 +287,7 @@ namespace pif {
         ok = ok && readExact(fd, &parsed.spoofProps, sizeof(parsed.spoofProps));
         ok = ok && readExact(fd, &parsed.spoofProvider, sizeof(parsed.spoofProvider));
         ok = ok && readExact(fd, &parsed.spoofSignature, sizeof(parsed.spoofSignature));
+        ok = ok && readExact(fd, &parsed.spoofTelephony, sizeof(parsed.spoofTelephony));
         ok = ok && readExact(fd, &parsed.debug, sizeof(parsed.debug));
         ok = ok && readString(fd, parsed.deviceInitialSdkInt);
         ok = ok && readString(fd, parsed.securityPatch);
@@ -275,6 +304,19 @@ namespace pif {
             ok = ok && readString(fd, value);
             if (ok) {
                 parsed.propMap.emplace(std::move(key), std::move(value));
+            }
+        }
+
+        // Read telephony map
+        uint32_t telephonyCount = 0;
+        ok = ok && readExact(fd, &telephonyCount, sizeof(telephonyCount));
+        for (uint32_t i = 0; ok && i < telephonyCount; ++i) {
+            std::string key;
+            std::string value;
+            ok = readString(fd, key);
+            ok = ok && readString(fd, value);
+            if (ok) {
+                parsed.telephonyMap.emplace(std::move(key), std::move(value));
             }
         }
 

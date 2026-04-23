@@ -238,6 +238,20 @@ std::string propMapToJson() {
     return json;
 }
 
+std::string telephonyMapToJson() {
+    std::string json = "{";
+    bool first = true;
+    for (const auto &[key, value] : gConfig.telephonyMap) {
+        if (!first) {
+            json += ",";
+        }
+        first = false;
+        json += "\"" + key + "\":\"" + value + "\"";
+    }
+    json += "}";
+    return json;
+}
+
 void modifyCallback(void *cookie, const char *name, const char *value, uint32_t serial) {
     if (!cookie || !name || !value || !o_callback) {
         return;
@@ -407,16 +421,18 @@ void injectDex() {
     }
 
     jclass entryPointClass = static_cast<jclass>(entryClassObject);
-    jmethodID entryInit = gEnv->GetStaticMethodID(entryPointClass, "init", "(Ljava/lang/String;ZZZ)V");
+    jmethodID entryInit = gEnv->GetStaticMethodID(entryPointClass, "init", "(Ljava/lang/String;ZZZZLjava/lang/String;)V");
     const std::string json = propMapToJson();
+    const std::string telephonyJson = telephonyMapToJson();
     jstring jsonString = gEnv->NewStringUTF(json.c_str());
+    jstring telephonyJsonString = gEnv->NewStringUTF(telephonyJson.c_str());
     gEnv->CallStaticVoidMethod(entryPointClass, entryInit, jsonString, gConfig.spoofProvider,
-                               gConfig.spoofSignature, gConfig.spoofBuild);
+                               gConfig.spoofSignature, gConfig.spoofBuild, gConfig.spoofTelephony, telephonyJsonString);
     if (gEnv->ExceptionCheck()) {
         gEnv->ExceptionDescribe();
         gEnv->ExceptionClear();
     }
-
+    gEnv->DeleteLocalRef(telephonyJsonString);
     gEnv->DeleteLocalRef(jsonString);
     gEnv->DeleteLocalRef(entryClassObject);
     gEnv->DeleteLocalRef(entryClassName);

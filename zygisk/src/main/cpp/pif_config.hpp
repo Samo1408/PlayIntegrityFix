@@ -7,10 +7,12 @@
 namespace pif {
     struct Config {
         std::unordered_map<std::string, std::string> propMap;
+        std::unordered_map<std::string, std::string> telephonyMap;
         bool spoofBuild = true;
         bool spoofProps = true;
         bool spoofProvider = false;
         bool spoofSignature = false;
+        bool spoofTelephony = false;
         bool debug = false;
         std::string deviceInitialSdkInt = "21";
         std::string securityPatch;
