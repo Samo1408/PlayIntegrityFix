@@ -7,35 +7,28 @@
 
   namespace pif {
       struct Config {
-          // Spoof values (key -> value), only telephony keys are used.
           std::unordered_map<std::string, std::string> telephonyMap;
 
-          // Master switch
           bool spoofTelephony = true;
 
-          // Per-class hook toggles
-          bool hookTelephonyManager      = true;
-          bool hookSubscriptionInfo      = true;
-          bool hookEmergencyNumber       = true;
-          bool hookTelephonyProperties   = true;
-          bool hookSemSystemProperties   = true;
+          // Per-class hook toggles (names match the real Android classes)
+          bool hookTelephonyManager      = true; // android.telephony.TelephonyManager
+          bool hookSubscriptionInfo      = true; // android.telephony.SubscriptionInfo
+          bool hookEmergencyNumber       = true; // android.telephony.emergency.EmergencyNumber
+          bool hookTelephonyProperties   = true; // android.sysprop.TelephonyProperties
+          bool hookSemTelephonyProps     = true; // com.samsung.telephony.sysprop.SemTelephonyProps
+          bool hookULocale               = true; // android.icu.util.ULocale (getDisplayCountry)
 
-          // Allowed app process names (e.g. com.example.app). If empty, hook nothing.
           std::unordered_set<std::string> allowedApps;
-
           bool debug = false;
 
           [[nodiscard]] bool needsDex() const {
-              // We always need the dex if telephony spoof is on (the dex
-              // contains TelephonyHooker which performs Java-side hooks).
-              return spoofTelephony && (hookTelephonyManager || hookSubscriptionInfo || hookEmergencyNumber);
+              return spoofTelephony && (hookTelephonyManager || hookSubscriptionInfo
+                  || hookEmergencyNumber || hookULocale);
           }
-
           [[nodiscard]] bool needsPropertyHook() const {
-              // Property-level hook covers TelephonyProperties and SemSystemProperties.
-              return spoofTelephony && (hookTelephonyProperties || hookSemSystemProperties);
+              return spoofTelephony && (hookTelephonyProperties || hookSemTelephonyProps);
           }
-
           [[nodiscard]] bool isAllowed(const std::string& pkg) const {
               return allowedApps.find(pkg) != allowedApps.end();
           }

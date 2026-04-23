@@ -116,7 +116,8 @@
       std::string j = "{";
       j += std::string("\"hookTelephonyManager\":") + b(gConfig.hookTelephonyManager) + ",";
       j += std::string("\"hookSubscriptionInfo\":") + b(gConfig.hookSubscriptionInfo) + ",";
-      j += std::string("\"hookEmergencyNumber\":") + b(gConfig.hookEmergencyNumber);
+      j += std::string("\"hookEmergencyNumber\":") + b(gConfig.hookEmergencyNumber) + ",";
+      j += std::string("\"hookULocale\":") + b(gConfig.hookULocale);
       j += "}";
       return j;
   }
@@ -125,24 +126,39 @@
   // android.telephony.TelephonyProperties / SemSystemProperties read from.
   struct PropMap { const char* prop; const char* configKey; };
   static const PropMap kPropMappings[] = {
-      // android.telephony.TelephonyProperties
+      // ===== android.sysprop.TelephonyProperties =====
+      // operator_* (current registered network)
+      {"gsm.operator.numeric",           "OPERATOR_NUMERIC"},
       {"gsm.operator.iso-country",       "NETWORK_COUNTRY_ISO"},
-      {"gsm.operator.numeric",           "NETWORK_OPERATOR_NUMERIC"},
       {"gsm.operator.alpha",             "OPERATOR_NAME"},
-      {"gsm.sim.operator.iso-country",   "SIM_COUNTRY_ISO"},
+      // icc_operator_* (SIM operator)
       {"gsm.sim.operator.numeric",       "SIM_OPERATOR_NUMERIC"},
+      {"gsm.sim.operator.iso-country",   "SIM_COUNTRY_ISO"},
       {"gsm.sim.operator.alpha",         "SIM_OPERATOR_NAME"},
-      {"gsm.network.type",               nullptr}, // intentionally null
-      // Samsung SemSystemProperties
+
+      // ===== com.samsung.telephony.sysprop.SemTelephonyProps =====
+      // Samsung uses "ril." prefixed system properties for the same values.
+      {"ril.operator.numeric",           "OPERATOR_NUMERIC"},
+      {"ril.operator.iso-country",       "NETWORK_COUNTRY_ISO"},
+      {"ril.operator.alpha",             "OPERATOR_NAME"},
+      {"ril.sim.operator.numeric",       "SIM_OPERATOR_NUMERIC"},
+      {"ril.sim.operator.iso-country",   "SIM_COUNTRY_ISO"},
+      {"ril.sim.operator.alpha",         "SIM_OPERATOR_NAME"},
+      {"ril.icc_operator_numeric",       "SIM_OPERATOR_NUMERIC"},
+      {"ril.icc_operator_iso_country",   "SIM_COUNTRY_ISO"},
+      {"ril.icc_operator_alpha",         "SIM_OPERATOR_NAME"},
+      // Samsung CSC
       {"ro.csc.country_code",            "COUNTRY_CODE"},
       {"ro.csc.countryiso_code",         "COUNTRY_ISO"},
-      {"persist.sys.timezone",           nullptr},
+      {"ro.csc.sales_code",              "OPERATOR_NAME"},
+      {"ro.boot.csc_sales_code",         "OPERATOR_NAME"},
   };
 
   static const char* lookupSpoofValue(const std::string_view& propName) {
       if (!gConfig.spoofTelephony) return nullptr;
-      bool sem = (propName.find("ro.csc") == 0);
-      if (sem && !gConfig.hookSemSystemProperties) return nullptr;
+      bool sem = (propName.find("ril.") == 0 || propName.find("ro.csc") == 0
+                  || propName.find("ro.boot.csc") == 0);
+      if (sem && !gConfig.hookSemTelephonyProps) return nullptr;
       if (!sem && !gConfig.hookTelephonyProperties) return nullptr;
 
       for (const auto& m : kPropMappings) {
