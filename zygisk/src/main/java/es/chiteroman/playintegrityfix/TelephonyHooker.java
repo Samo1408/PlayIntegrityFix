@@ -1,155 +1,161 @@
 package es.chiteroman.playintegrityfix;
 
-import android.util.Log;
+  import android.util.Log;
 
-import org.json.JSONObject;
+  import org.json.JSONObject;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.Map;
+  import java.lang.reflect.Field;
+  import java.util.HashMap;
+  import java.util.Iterator;
+  import java.util.Map;
 
-public class TelephonyHooker {
-    public static final String TAG = "PIF-Telephony";
-    private static final Map<String, String> telephonyMap = new HashMap<>();
+  /**
+   * Telephony spoofing performed at the Java level.
+   *
+   * Most spoofing is actually done at the native level by intercepting
+   * __system_property_read_callback in zygisk.cpp (this covers
+   * TelephonyProperties and SemSystemProperties paths used by
+   * TelephonyManager / SubscriptionInfo internally).
+   *
+   * On top of that we patch any cached static fields that are populated
+   * once at process start, so that a value already cached from a real
+   * read is replaced with the spoofed one for classes that snapshot
+   * properties: SubscriptionInfo, EmergencyNumber, etc.
+   */
+  public class TelephonyHooker {
+      public static final String TAG = "TeleInject-J";
+      private static final Map<String, String> values = new HashMap<>();
 
-    /**
-     * Initialize telephony spoofing with configuration from JSON
-     */
-    public static void init(String json) {
-        if (json == null || json.isEmpty()) {
-            Log.i(TAG, "No telephony configuration provided");
-            return;
-        }
+      public static void init(String json, boolean hookTM, boolean hookSI, boolean hookEN) {
+          if (json == null || json.isEmpty()) {
+              Log.i(TAG, "No telephony configuration provided");
+              return;
+          }
+          try {
+              JSONObject obj = new JSONObject(json);
+              Iterator<String> keys = obj.keys();
+              while (keys.hasNext()) {
+                  String k = keys.next();
+                  String v = obj.optString(k, "");
+                  if (!v.isEmpty()) values.put(k, v);
+              }
+          } catch (Exception e) {
+              Log.e(TAG, "Failed to parse telephony config", e);
+              return;
+          }
+          Log.i(TAG, "Loaded " + values.size() + " spoof values");
 
-        try {
-            JSONObject jsonObject = new JSONObject(json);
-            telephonyMap.clear();
-            
-            jsonObject.keys().forEachRemaining(key -> {
-                try {
-                    String value = jsonObject.getString(key);
-                    if (!value.isBlank()) {
-                        telephonyMap.put(key, value);
-                        Log.d(TAG, "Loaded: " + key + " = " + value);
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "Error loading telephony config: " + key, e);
-                }
-            });
+          if (hookTM) hookTelephonyManager();
+          if (hookSI) hookSubscriptionInfo();
+          if (hookEN) hookEmergencyNumber();
+      }
 
-            if (!telephonyMap.isEmpty()) {
-                Log.i(TAG, "Telephony spoofing initialized with " + telephonyMap.size() + " values");
-                hookTelephonyManager();
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize telephony spoofing", e);
-        }
-    }
+      /** Try to set a static or instance field by name, swallow errors. */
+      private static void setField(Class<?> cls, Object instance, String fieldName, Object value) {
+          if (value == null) return;
+          try {
+              Field f = findField(cls, fieldName);
+              if (f == null) return;
+              f.setAccessible(true);
+              f.set(instance, value);
+              Log.d(TAG, cls.getSimpleName() + "." + fieldName + " = " + value);
+          } catch (Throwable t) {
+              // silently ignore - field may not exist on this Android version
+          }
+      }
 
-    /**
-     * Hook TelephonyManager methods to return spoofed values
-     */
-    private static void hookTelephonyManager() {
-        try {
-            Class<?> telephonyManagerClass = Class.forName("android.telephony.TelephonyManager");
-            
-            // Hook getCountryIso
-            hookMethod(telephonyManagerClass, "getCountryIso", "COUNTRY_ISO");
-            
-            // Hook getCountryCode
-            hookMethod(telephonyManagerClass, "getCountryCode", "COUNTRY_CODE");
-            
-            // Hook getSimOperatorNumeric
-            hookMethod(telephonyManagerClass, "getSimOperatorNumeric", "SIM_OPERATOR_NUMERIC");
-            
-            // Hook getSimOperator
-            hookMethod(telephonyManagerClass, "getSimOperator", "SIM_OPERATOR");
-            
-            // Hook getSimOperatorName
-            hookMethod(telephonyManagerClass, "getSimOperatorName", "SIM_OPERATOR_NAME");
-            
-            // Hook getSimCountryIso
-            hookMethod(telephonyManagerClass, "getSimCountryIso", "SIM_COUNTRY_ISO");
-            
-            // Hook getNetworkCountryIso
-            hookMethod(telephonyManagerClass, "getNetworkCountryIso", "NETWORK_COUNTRY_ISO");
-            
-            // Hook getNetworkOperatorNumeric
-            hookMethod(telephonyManagerClass, "getNetworkOperatorNumeric", "NETWORK_OPERATOR_NUMERIC");
-            
-            // Hook getNetworkOperator
-            hookMethod(telephonyManagerClass, "getNetworkOperator", "OPERATOR_NUMERIC");
-            
-            // Hook getNetworkOperatorName
-            hookMethod(telephonyManagerClass, "getNetworkOperatorName", "OPERATOR_NAME");
-            
-            // Hook getMcc
-            hookMethod(telephonyManagerClass, "getMcc", "MCC");
-            
-            // Hook getMccString
-            hookMethod(telephonyManagerClass, "getMccString", "MCC_STRING");
-            
-            // Hook getMnc
-            hookMethod(telephonyManagerClass, "getMnc", "MNC");
-            
-            // Hook getMncString
-            hookMethod(telephonyManagerClass, "getMncString", "MNC_STRING");
-            
-            Log.i(TAG, "TelephonyManager hooks applied successfully");
-        } catch (ClassNotFoundException e) {
-            Log.e(TAG, "TelephonyManager class not found", e);
-        }
-    }
+      private static Field findField(Class<?> cls, String name) {
+          Class<?> c = cls;
+          while (c != null && c != Object.class) {
+              try { return c.getDeclaredField(name); }
+              catch (NoSuchFieldException ignored) {}
+              c = c.getSuperclass();
+          }
+          return null;
+      }
 
-    /**
-     * Hook a specific method in TelephonyManager
-     */
-    private static void hookMethod(Class<?> clazz, String methodName, String configKey) {
-        try {
-            String spoofedValue = telephonyMap.get(configKey);
-            if (spoofedValue == null || spoofedValue.isEmpty()) {
-                return;
-            }
+      private static String s(String k) { return values.get(k); }
+      private static Integer i(String k) {
+          String v = values.get(k);
+          if (v == null || v.isEmpty()) return null;
+          try { return Integer.parseInt(v); } catch (NumberFormatException e) { return null; }
+      }
 
-            // Try to find the method
-            Method method = null;
-            try {
-                method = clazz.getMethod(methodName);
-            } catch (NoSuchMethodException e) {
-                // Method might not exist on this API level
-                Log.d(TAG, "Method " + methodName + " not found: " + e.getMessage());
-                return;
-            }
+      /**
+       * android.telephony.TelephonyManager — most getters delegate to
+       * binder calls so they cannot be spoofed by reflection alone.
+       * What we can do: clear cached fields that some methods snapshot,
+       * so the next call re-reads from the (now spoofed) system property.
+       */
+      private static void hookTelephonyManager() {
+          try {
+              Class<?> tm = Class.forName("android.telephony.TelephonyManager");
+              // These cached fields exist on some Android versions:
+              for (String f : new String[]{"sCachedCountryIso", "sCachedNetworkOperator",
+                      "sCachedSimOperator", "sCachedSimOperatorName"}) {
+                  try {
+                      Field cf = tm.getDeclaredField(f);
+                      cf.setAccessible(true);
+                      cf.set(null, null);
+                  } catch (Throwable ignored) {}
+              }
+              Log.i(TAG, "TelephonyManager caches cleared");
+          } catch (Throwable t) {
+              Log.e(TAG, "hookTelephonyManager", t);
+          }
+      }
 
-            // For now, we log that we would hook this method
-            // In a real implementation, you would use reflection to intercept calls
-            Log.d(TAG, "Would hook method: " + methodName + " -> " + spoofedValue);
-        } catch (Exception e) {
-            Log.e(TAG, "Error hooking method " + methodName, e);
-        }
-    }
+      /**
+       * android.telephony.SubscriptionInfo — instance fields populated by
+       * the system. We patch the SubscriptionManager cache so the next
+       * lookup is rebuilt with our spoofed property values.
+       */
+      private static void hookSubscriptionInfo() {
+          try {
+              Class<?> sm = Class.forName("android.telephony.SubscriptionManager");
+              // Best effort: drop any cached SubscriptionInfo lists.
+              for (String f : new String[]{"sCacheActiveList", "sCacheAllList",
+                      "mSubInfoLocalCache"}) {
+                  try {
+                      Field cf = sm.getDeclaredField(f);
+                      cf.setAccessible(true);
+                      Object cur = cf.get(null);
+                      if (cur instanceof Map) ((Map<?, ?>) cur).clear();
+                  } catch (Throwable ignored) {}
+              }
+              Log.i(TAG, "SubscriptionInfo cache cleared");
+          } catch (Throwable t) {
+              Log.e(TAG, "hookSubscriptionInfo", t);
+          }
+      }
 
-    /**
-     * Get the telephony configuration as JSON
-     */
-    public static String getTelephonyConfigJson() {
-        JSONObject json = new JSONObject();
-        try {
-            for (Map.Entry<String, String> entry : telephonyMap.entrySet()) {
-                json.put(entry.getKey(), entry.getValue());
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error creating telephony config JSON", e);
-        }
-        return json.toString();
-    }
-
-    /**
-     * Clear all telephony spoofing
-     */
-    public static void clear() {
-        telephonyMap.clear();
-        Log.i(TAG, "Telephony spoofing cleared");
-    }
-}
+      /**
+       * android.telephony.emergency.EmergencyNumber — we cannot easily
+       * intercept binder calls but we can patch the static MNC/MCC fields
+       * on EmergencyNumberTracker if it has been initialised in this
+       * process so its lookups use spoofed values.
+       */
+      private static void hookEmergencyNumber() {
+          try {
+              Class<?> en = Class.forName("android.telephony.emergency.EmergencyNumber");
+              String mcc = s("MCC_STRING");
+              String mnc = s("MNC_STRING");
+              if (mcc == null) mcc = s("MCC");
+              if (mnc == null) mnc = s("MNC");
+              // EmergencyNumber holds an mCountryIso field on most versions.
+              for (String f : new String[]{"mCountryIso", "sDefaultCountryIso"}) {
+                  String v = s("COUNTRY_ISO");
+                  if (v != null) setField(en, null, f, v);
+              }
+              // Optional: try to update tracker's MCC.
+              try {
+                  Class<?> tracker = Class.forName("com.android.internal.telephony.emergency.EmergencyNumberTracker");
+                  if (mcc != null) setField(tracker, null, "mLastKnownEmergencyCountryIso", s("COUNTRY_ISO"));
+              } catch (Throwable ignored) {}
+              Log.i(TAG, "EmergencyNumber patched");
+          } catch (Throwable t) {
+              Log.e(TAG, "hookEmergencyNumber", t);
+          }
+      }
+  }
+  
