@@ -27,6 +27,78 @@
                     <svg slot="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg>
                 </md-filter-chip>
             </md-chip-set>
+            <!-- Telephony Spoofing Toggle -->
+            <label class="spoof-option" id="spoofTelephony-container">
+                Spoof Telephony
+                <md-switch id="spoofTelephony-toggle"></md-switch><md-ripple></md-ripple>
+            </label>
+            <!-- Telephony Spoofing Section -->
+            <div class="telephony-section" id="telephony-section" style="display: none;">
+                <div class="section-header">📱 Telephony Spoofing</div>
+                <div class="telephony-grid">
+                    <div class="input-group">
+                        <label data-i18n="telephony_country_iso">Country ISO</label>
+                        <md-outlined-text-field id="countryIso" type="text" placeholder="US"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_country_code">Country Code</label>
+                        <md-outlined-text-field id="countryCode" type="text" placeholder="1"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_sim_operator_numeric">SIM Operator Numeric</label>
+                        <md-outlined-text-field id="simOperatorNumeric" type="text" placeholder="310410"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_sim_operator">SIM Operator</label>
+                        <md-outlined-text-field id="simOperator" type="text" placeholder="310410"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_sim_operator_name">SIM Operator Name</label>
+                        <md-outlined-text-field id="simOperatorName" type="text" placeholder="Verizon"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_sim_country_iso">SIM Country ISO</label>
+                        <md-outlined-text-field id="simCountryIso" type="text" placeholder="US"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_network_country_iso">Network Country ISO</label>
+                        <md-outlined-text-field id="networkCountryIso" type="text" placeholder="US"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_network_operator_numeric">Network Operator Numeric</label>
+                        <md-outlined-text-field id="networkOperatorNumeric" type="text" placeholder="310410"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_operator_numeric">Operator Numeric</label>
+                        <md-outlined-text-field id="operatorNumeric" type="text" placeholder="310410"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_operator_name">Operator Name</label>
+                        <md-outlined-text-field id="operatorName" type="text" placeholder="Verizon"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_mcc">MCC</label>
+                        <md-outlined-text-field id="mcc" type="text" placeholder="310"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_mcc_string">MCC String</label>
+                        <md-outlined-text-field id="mccString" type="text" placeholder="310"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_mnc">MNC</label>
+                        <md-outlined-text-field id="mnc" type="text" placeholder="410"></md-outlined-text-field>
+                    </div>
+                    <div class="input-group">
+                        <label data-i18n="telephony_mnc_string">MNC String</label>
+                        <md-outlined-text-field id="mncString" type="text" placeholder="410"></md-outlined-text-field>
+                    </div>
+                </div>
+                <div class="telephony-buttons">
+                    <md-filled-button id="save-telephony" data-i18n="telephony_save">Save</md-filled-button>
+                    <md-outlined-button id="load-telephony" data-i18n="telephony_load">Load</md-outlined-button>
+                    <md-outlined-button id="clear-telephony" data-i18n="telephony_clear">Clear</md-outlined-button>
+                </div>
+            </div>
         </div>
         <!-- Output terminal -->
         <div class="output-terminal">
@@ -102,6 +174,10 @@
                 <div class="help-block">
                     <p class="help-subtitile">Play Store?</p>
                     <ul><li data-i18n="help_play_store"></li></ul>
+                </div>
+                <div class="help-block">
+                    <p class="help-subtitile">Spoof Telephony</p>
+                    <ul><li data-i18n="help_spoof_telephony"></li></ul>
                 </div>
                 <md-divider></md-divider><br>
                 <div class="help-block">
