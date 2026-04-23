@@ -19,7 +19,8 @@ import { exec, toast } from "kernelsu-alt";
       'hookEmergencyNumber',
       'hookTelephonyProperties',
       'hookSemTelephonyProps',
-    'hookULocale'
+    'hookULocale',
+    'hookCellIdentity'
   ];
 
   let allowedApps = new Set();
