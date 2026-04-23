@@ -152,7 +152,7 @@ public final class EntryPoint {
         return field;
     }
 
-    public static void init(String json, boolean spoofProvider, boolean spoofSignature, boolean spoofBuild) {
+    public static void init(String json, boolean spoofProvider, boolean spoofSignature, boolean spoofBuild, boolean spoofTelephony, String telephonyJson) {
         if (spoofProvider) {
             spoofProvider();
         } else {
@@ -163,6 +163,12 @@ public final class EntryPoint {
             spoofSignature();
         } else {
             Log.i(TAG, "Don't spoof signature");
+        }
+
+        if (spoofTelephony) {
+            TelephonyHooker.init(telephonyJson);
+        } else {
+            Log.i(TAG, "Don't spoof telephony");
         }
 
         if (!spoofBuild) {
