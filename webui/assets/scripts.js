@@ -94,9 +94,11 @@ import { exec, toast } from "kernelsu-alt";
       });
 
       const content = buildConfigFile(values, toggles, allowedApps);
-      // base64 round-trip avoids any quoting headaches
+      // base64 round-trip avoids any quoting headaches. Save to the custom
+      // config too because native code gives /data/adb/teleinject.conf priority.
       const b64 = btoa(unescape(encodeURIComponent(content)));
-      const cmd = "echo '" + b64 + "' | base64 -d > " + CONFIG_PATH;
+      const cmd = "echo '" + b64 + "' | base64 -d > " + CUSTOM_CONFIG
+          + " && cp " + CUSTOM_CONFIG + " " + CONFIG_PATH;
       const r = await exec(cmd);
       const status = document.getElementById('save-status');
       if (r && r.errno === 0) {
