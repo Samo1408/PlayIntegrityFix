@@ -147,24 +147,24 @@ static const PropMap kPropMappings[] = {
 };
 
 // Build props for Pixel spoofing (Play Integrity)
-struct BuildPropMap { const char* prop; std::string Config::*field; };
+struct BuildPropMap { const char* prop; std::string pif::Config::*field; };
 static const BuildPropMap kBuildPropMappings[] = {
-    {"ro.build.fingerprint",           &Config::fingerprint},
-    {"ro.product.model",               &Config::model},
-    {"ro.product.name",                &Config::product},
-    {"ro.product.brand",               &Config::brand},
-    {"ro.product.device",              &Config::device},
-    {"ro.product.manufacturer",        &Config::manufacturer},
-    {"ro.build.version.security_patch",&Config::securityPatch},
-    {"ro.product.first_api_level",     &Config::deviceInitialSdkInt},
+    {"ro.build.fingerprint",           &pif::Config::fingerprint},
+    {"ro.product.model",               &pif::Config::model},
+    {"ro.product.name",                &pif::Config::product},
+    {"ro.product.brand",               &pif::Config::brand},
+    {"ro.product.device",              &pif::Config::device},
+    {"ro.product.manufacturer",        &pif::Config::manufacturer},
+    {"ro.build.version.security_patch",&pif::Config::securityPatch},
+    {"ro.product.first_api_level",     &pif::Config::deviceInitialSdkInt},
 };
 
 static const char* lookupSpoofValue(const std::string_view& propName) {
-    if (!gConfig.spoofTelephony) return nullptr;
+    if (!gConfig.spoofTelephony && !gConfig.spoofBuild) return nullptr;
     bool sem = (propName.find("ril.") == 0 || propName.find("ro.csc") == 0
                 || propName.find("ro.boot.csc") == 0);
-    if (sem && !gConfig.hookSemTelephonyProps) return nullptr;
-    if (!sem && !gConfig.hookTelephonyProperties) return nullptr;
+    if (sem && !gConfig.hookSemTelephonyProps) goto check_build;
+    if (!sem && !gConfig.hookTelephonyProperties) goto check_build;
 
     for (const auto& m : kPropMappings) {
         if (!m.configKey) continue;
@@ -176,7 +176,7 @@ static const char* lookupSpoofValue(const std::string_view& propName) {
         }
     }
 
-    // Check build props for Pixel spoofing
+check_build:
     if (gConfig.spoofBuild) {
         for (const auto& m : kBuildPropMappings) {
             if (propName == m.prop && !(gConfig.*m.field).empty()) {
