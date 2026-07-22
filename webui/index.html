@@ -13,14 +13,12 @@
     </div>
     <div class="content" unresolved>
 
-        <!-- Master switch -->
         <label class="spoof-option" id="spoofTelephony-container">
             Spoof Telephony
             <md-switch id="spoofTelephony-toggle" selected></md-switch>
             <md-ripple></md-ripple>
         </label>
 
-        <!-- Hook class toggles -->
         <div class="telephony-section">
             <div class="section-header">Hook Classes</div>
             <label class="spoof-option">
@@ -60,9 +58,19 @@
             </label>
         </div>
 
-        <!-- Telephony spoof values -->
         <div class="telephony-section" id="telephony-section">
             <div class="section-header">Telephony Spoofing Values</div>
+
+            <div class="country-select-row">
+                <md-outlined-select id="country-select" label="Quick Country Select">
+                    <md-select-option value="-1"><div slot="headline">-- Choose a country --</div></md-select-option>
+                </md-outlined-select>
+                <md-outlined-select id="operator-select" label="Operator">
+                    <md-select-option value="-1"><div slot="headline">-- Choose operator --</div></md-select-option>
+                </md-outlined-select>
+                <md-outlined-button id="apply-country-btn">Apply</md-outlined-button>
+            </div>
+
             <div class="telephony-grid">
                 <div class="input-group"><label>Country ISO</label>
                     <md-outlined-text-field id="COUNTRY_ISO" type="text"></md-outlined-text-field></div>
@@ -95,7 +103,58 @@
             </div>
         </div>
 
-        <!-- Allowed apps -->
+        <!-- Pixel Device Spoofing (Play Integrity Fix) -->
+        <div class="telephony-section">
+            <div class="section-header">Pixel Device Spoofing (Play Integrity)</div>
+
+            <div class="country-select-row">
+                <md-outlined-select id="pixel-select" label="Quick Pixel Select">
+                    <md-select-option value="-1"><div slot="headline">-- Choose a Pixel device --</div></md-select-option>
+                </md-outlined-select>
+            </div>
+
+            <div class="telephony-grid">
+                <div class="input-group"><label>Fingerprint (ro.build.fingerprint)</label>
+                    <md-outlined-text-field id="FINGERPRINT" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Model (ro.product.model)</label>
+                    <md-outlined-text-field id="MODEL" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Product (ro.product.name)</label>
+                    <md-outlined-text-field id="PRODUCT" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Brand (ro.product.brand)</label>
+                    <md-outlined-text-field id="BRAND" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Device (ro.product.device)</label>
+                    <md-outlined-text-field id="DEVICE" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Manufacturer</label>
+                    <md-outlined-text-field id="MANUFACTURER" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Security Patch (YYYY-MM-DD)</label>
+                    <md-outlined-text-field id="SECURITY_PATCH" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Initial SDK Int</label>
+                    <md-outlined-text-field id="DEVICE_INITIAL_SDK_INT" type="text"></md-outlined-text-field></div>
+            </div>
+
+            <div class="section-header" style="margin-top:12px">Spoof Options</div>
+            <label class="spoof-option">
+                Spoof Build Fingerprint
+                <md-switch id="spoofBuild" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                Spoof System Props (GMS)
+                <md-switch id="spoofProps"></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                Spoof Keystore Provider
+                <md-switch id="spoofProvider"></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                Spoof ROM Signature (testkey ROMs)
+                <md-switch id="spoofSignature"></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+        </div>
+
         <div class="telephony-section">
             <div class="section-header">Apps to Hook</div>
 
@@ -123,7 +182,6 @@
             <div class="hint">Tip: type <code>*</code> in the manual field and add it to apply to every app.</div>
         </div>
 
-        <!-- Save -->
         <div class="save-bar">
             <md-filled-button id="save-btn">Save settings</md-filled-button>
             <span id="save-status"></span>
