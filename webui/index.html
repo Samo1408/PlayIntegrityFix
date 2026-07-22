@@ -1,130 +1,133 @@
 <!DOCTYPE html>
-  <html>
-  <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>TeleInject</title>
-      <link rel="stylesheet" href="assets/styles.css" type="text/css">
-      <script type="module" crossorigin src="assets/scripts.js"></script>
-  </head>
-  <body>
-      <div class="header">
-          <div>TeleInject <span id="version-text"></span></div>
-      </div>
-      <div class="content" unresolved>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeleInject</title>
+    <link rel="stylesheet" href="assets/styles.css" type="text/css">
+    <script type="module" crossorigin src="assets/scripts.js"></script>
+</head>
+<body>
+    <div class="header">
+        <div>TeleInject <span id="version-text"></span></div>
+    </div>
+    <div class="content" unresolved>
 
-          <!-- Master switch -->
-          <label class="spoof-option" id="spoofTelephony-container">
-              Spoof Telephony
-              <md-switch id="spoofTelephony-toggle" selected></md-switch>
-              <md-ripple></md-ripple>
-          </label>
+        <!-- Master switch -->
+        <label class="spoof-option" id="spoofTelephony-container">
+            Spoof Telephony
+            <md-switch id="spoofTelephony-toggle" selected></md-switch>
+            <md-ripple></md-ripple>
+        </label>
 
-          <!-- Hook class toggles -->
-          <div class="telephony-section">
-              <div class="section-header">Hook Classes</div>
-              <label class="spoof-option">
-                  android.telephony.TelephonyManager
-                  <md-switch id="hookTelephonyManager" selected></md-switch>
-                  <md-ripple></md-ripple>
-              </label>
-              <label class="spoof-option">
-                  android.telephony.SubscriptionInfo
-                  <md-switch id="hookSubscriptionInfo" selected></md-switch>
-                  <md-ripple></md-ripple>
-              </label>
-              <label class="spoof-option">
-                  android.telephony.emergency.EmergencyNumber
-                  <md-switch id="hookEmergencyNumber" selected></md-switch>
-                  <md-ripple></md-ripple>
-              </label>
-              <label class="spoof-option">
-                  android.sysprop.TelephonyProperties
-                  <md-switch id="hookTelephonyProperties" selected></md-switch>
-                  <md-ripple></md-ripple>
-              </label>
-              <label class="spoof-option">
-                  com.samsung.telephony.sysprop.SemTelephonyProps
-                  <md-switch id="hookSemTelephonyProps" selected></md-switch>
-                  <md-ripple></md-ripple>
-              </label>
-              <label class="spoof-option">
-                  android.icu.util.ULocale (getDisplayCountry)
-                  <md-switch id="hookULocale" selected></md-switch>
-                  <md-ripple></md-ripple>
-              </label>
-              <label class="spoof-option">
-                  android.telephony.CellIdentity*
-                  <md-switch id="hookCellIdentity" selected></md-switch>
-                  <md-ripple></md-ripple>
-              </label>
-          </div>
+        <!-- Hook class toggles -->
+        <div class="telephony-section">
+            <div class="section-header">Hook Classes</div>
+            <label class="spoof-option">
+                android.telephony.TelephonyManager
+                <md-switch id="hookTelephonyManager" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                android.telephony.SubscriptionInfo
+                <md-switch id="hookSubscriptionInfo" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                android.telephony.emergency.EmergencyNumber
+                <md-switch id="hookEmergencyNumber" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                android.sysprop.TelephonyProperties
+                <md-switch id="hookTelephonyProperties" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                com.samsung.telephony.sysprop.SemTelephonyProps
+                <md-switch id="hookSemTelephonyProps" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                android.icu.util.ULocale (getDisplayCountry)
+                <md-switch id="hookULocale" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+            <label class="spoof-option">
+                android.telephony.CellIdentity*
+                <md-switch id="hookCellIdentity" selected></md-switch>
+                <md-ripple></md-ripple>
+            </label>
+        </div>
 
-          <!-- Telephony spoof values -->
-          <div class="telephony-section" id="telephony-section">
-              <div class="section-header">Telephony Spoofing Values</div>
-              <div class="telephony-grid">
-                  <div class="input-group"><label>Country ISO</label>
-                      <md-outlined-text-field id="COUNTRY_ISO" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>Country Code</label>
-                      <md-outlined-text-field id="COUNTRY_CODE" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>SIM Operator Numeric (MCCMNC)</label>
-                      <md-outlined-text-field id="SIM_OPERATOR_NUMERIC" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>SIM Operator</label>
-                      <md-outlined-text-field id="SIM_OPERATOR" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>SIM Operator Name</label>
-                      <md-outlined-text-field id="SIM_OPERATOR_NAME" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>SIM Country ISO</label>
-                      <md-outlined-text-field id="SIM_COUNTRY_ISO" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>Network Country ISO</label>
-                      <md-outlined-text-field id="NETWORK_COUNTRY_ISO" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>Network Operator Numeric</label>
-                      <md-outlined-text-field id="NETWORK_OPERATOR_NUMERIC" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>Operator Numeric</label>
-                      <md-outlined-text-field id="OPERATOR_NUMERIC" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>Operator Name</label>
-                      <md-outlined-text-field id="OPERATOR_NAME" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>MCC</label>
-                      <md-outlined-text-field id="MCC" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>MCC string</label>
-                      <md-outlined-text-field id="MCC_STRING" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>MNC</label>
-                      <md-outlined-text-field id="MNC" type="text"></md-outlined-text-field></div>
-                  <div class="input-group"><label>MNC string</label>
-                      <md-outlined-text-field id="MNC_STRING" type="text"></md-outlined-text-field></div>
-              </div>
-          </div>
+        <!-- Telephony spoof values -->
+        <div class="telephony-section" id="telephony-section">
+            <div class="section-header">Telephony Spoofing Values</div>
+            <div class="telephony-grid">
+                <div class="input-group"><label>Country ISO</label>
+                    <md-outlined-text-field id="COUNTRY_ISO" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Country Code</label>
+                    <md-outlined-text-field id="COUNTRY_CODE" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>SIM Operator Numeric (MCCMNC)</label>
+                    <md-outlined-text-field id="SIM_OPERATOR_NUMERIC" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>SIM Operator</label>
+                    <md-outlined-text-field id="SIM_OPERATOR" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>SIM Operator Name</label>
+                    <md-outlined-text-field id="SIM_OPERATOR_NAME" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>SIM Country ISO</label>
+                    <md-outlined-text-field id="SIM_COUNTRY_ISO" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Network Country ISO</label>
+                    <md-outlined-text-field id="NETWORK_COUNTRY_ISO" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Network Operator Numeric</label>
+                    <md-outlined-text-field id="NETWORK_OPERATOR_NUMERIC" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Operator Numeric</label>
+                    <md-outlined-text-field id="OPERATOR_NUMERIC" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>Operator Name</label>
+                    <md-outlined-text-field id="OPERATOR_NAME" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>MCC</label>
+                    <md-outlined-text-field id="MCC" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>MCC string</label>
+                    <md-outlined-text-field id="MCC_STRING" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>MNC</label>
+                    <md-outlined-text-field id="MNC" type="text"></md-outlined-text-field></div>
+                <div class="input-group"><label>MNC string</label>
+                    <md-outlined-text-field id="MNC_STRING" type="text"></md-outlined-text-field></div>
+            </div>
+        </div>
 
-          <!-- Allowed apps -->
-          <div class="telephony-section">
-              <div class="section-header">Apps to Hook</div>
+        <!-- Allowed apps -->
+        <div class="telephony-section">
+            <div class="section-header">Apps to Hook</div>
 
-              <div class="app-controls">
-                  <md-outlined-text-field id="app-search" type="text" label="Search packages"></md-outlined-text-field>
-                  <md-outlined-button id="select-all-btn">Select All</md-outlined-button>
-                  <md-outlined-button id="clear-all-btn">Clear All</md-outlined-button>
-                  <md-outlined-button id="reload-apps-btn">Reload</md-outlined-button>
-              </div>
+            <div class="app-controls">
+                <md-outlined-text-field id="app-search" type="text" label="Search packages"></md-outlined-text-field>
+                <md-outlined-button id="system-apps-toggle-btn">
+                    <md-icon slot="icon">apps</md-icon>
+                    Show System Apps
+                </md-outlined-button>
+                <md-outlined-button id="select-all-btn">Select All</md-outlined-button>
+                <md-outlined-button id="clear-all-btn">Clear All</md-outlined-button>
+                <md-outlined-button id="reload-apps-btn">Reload</md-outlined-button>
+            </div>
 
-              <div id="app-list" class="app-list">
-                  <div class="hint">Loading installed packages...</div>
-              </div>
+            <div id="app-list" class="app-list">
+                <div class="hint">Loading installed packages...</div>
+            </div>
 
-              <div class="manual-add">
-                  <md-outlined-text-field id="manual-pkg" type="text"
-                      label="Add package name manually (e.g. com.example)"></md-outlined-text-field>
-                  <md-filled-button id="add-pkg-btn">Add</md-filled-button>
-              </div>
+            <div class="manual-add">
+                <md-outlined-text-field id="manual-pkg" type="text"
+                    label="Add package name manually (e.g. com.example)"></md-outlined-text-field>
+                <md-filled-button id="add-pkg-btn">Add</md-filled-button>
+            </div>
 
-              <div class="hint">Tip: type <code>*</code> in the manual field and add it to apply to every app.</div>
-          </div>
+            <div class="hint">Tip: type <code>*</code> in the manual field and add it to apply to every app.</div>
+        </div>
 
-          <!-- Save -->
-          <div class="save-bar">
-              <md-filled-button id="save-btn">Save settings</md-filled-button>
-              <span id="save-status"></span>
-          </div>
-      </div>
-  </body>
-  </html>
-  
+        <!-- Save -->
+        <div class="save-bar">
+            <md-filled-button id="save-btn">Save settings</md-filled-button>
+            <span id="save-status"></span>
+        </div>
+    </div>
+</body>
+</html>
